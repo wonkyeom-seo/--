@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0d0f12">
+    <title>자료</title>
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <label class="search-box">
+          <span class="sr-only">자료 검색</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.3-4.3m2.3-5.2a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+          <input id="searchInput" type="search" placeholder="전체 자료에서 검색" autocomplete="off">
+        </label>
+      </div>
+    </header>
+
+    <main class="main-shell">
+      <section class="browser-panel" aria-label="자료 탐색기">
+        <div class="browser-toolbar">
+          <nav id="breadcrumbs" class="breadcrumbs" aria-label="현재 경로"></nav>
+          <button id="refreshButton" class="icon-button" type="button" title="새로고침" aria-label="새로고침">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+          </button>
+        </div>
+        <div id="status" class="status" role="status"></div>
+        <div id="entries" class="entry-grid"></div>
+      </section>
+    </main>
+
+    <template id="entryTemplate">
+      <article class="entry-card">
+        <button class="entry-main" type="button">
+          <span class="entry-icon"></span>
+          <span class="entry-copy">
+            <strong class="entry-name"></strong>
+            <span class="entry-meta"></span>
+          </span>
+          <svg class="entry-arrow" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+        <div class="entry-actions"></div>
+      </article>
+    </template>
+
+    <script src="/js/app.js" defer></script>
+  </body>
+</html>

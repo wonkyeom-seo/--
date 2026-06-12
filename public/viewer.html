@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#181b20">
+    <title>PDF 뷰어</title>
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body class="viewer-body">
+    <header class="viewer-header">
+      <a id="backLink" class="viewer-back" href="/" aria-label="자료 목록으로 돌아가기">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+      </a>
+      <div class="viewer-title">
+        <strong id="fileName">PDF 불러오는 중</strong>
+        <small id="pageSummary">잠시만 기다려 주세요</small>
+      </div>
+      <a id="downloadLink" class="viewer-download" href="#" download>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></svg>
+        <span>다운로드</span>
+      </a>
+    </header>
+
+    <div class="viewer-toolbar" aria-label="PDF 조작">
+      <div class="toolbar-group">
+        <button id="prevPage" class="tool-button" type="button" aria-label="이전 페이지">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <label class="page-control">
+          <input id="pageNumber" type="number" min="1" value="1" aria-label="페이지 번호">
+          <span>/ <b id="pageCount">-</b></span>
+        </label>
+        <button id="nextPage" class="tool-button" type="button" aria-label="다음 페이지">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+      <div class="toolbar-group">
+        <button id="zoomOut" class="tool-button" type="button" aria-label="축소">-</button>
+        <span id="zoomValue" class="zoom-value">맞춤</span>
+        <button id="zoomIn" class="tool-button" type="button" aria-label="확대">+</button>
+        <button id="fitWidth" class="tool-button fit-button" type="button">너비 맞춤</button>
+      </div>
+    </div>
+
+    <main id="viewerStage" class="viewer-stage">
+      <div id="viewerStatus" class="viewer-status" role="status">
+        <span class="spinner"></span>
+        <strong>PDF를 불러오는 중입니다</strong>
+        <small>큰 문서는 첫 페이지가 표시되기까지 잠시 걸릴 수 있습니다.</small>
+      </div>
+      <canvas id="pdfCanvas" aria-label="PDF 페이지"></canvas>
+    </main>
+
+    <script type="module" src="/js/viewer.js"></script>
+  </body>
+</html>

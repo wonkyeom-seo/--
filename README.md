@@ -1,0 +1,61 @@
+# 기말 자료실
+
+`data` 폴더를 자동으로 읽어 폴더 탐색, 파일 다운로드, 모바일 PDF 보기를 제공하는 가벼운 Node.js 사이트입니다.
+
+## 실행
+
+Node.js 18 이상이 필요합니다.
+
+```bash
+npm install
+npm start
+```
+
+기본 주소는 `http://0.0.0.0:3000`입니다. 브라우저에서는 서버의 IP 주소와 포트로 접속합니다.
+
+개발 중 파일 변경을 감지해 서버를 다시 시작하려면:
+
+```bash
+npm run dev
+```
+
+## 환경 변수
+
+- `PORT`: 서버 포트, 기본값 `3000`
+- `HOST`: 바인딩 주소, 기본값 `0.0.0.0`
+- `DATA_DIR`: 자료 폴더의 절대 또는 상대 경로, 기본값 `./data`
+
+예시:
+
+```bash
+PORT=8080 DATA_DIR=/srv/exam-data npm start
+```
+
+자료는 서버 실행 중에도 `data` 폴더에 추가하거나 정리할 수 있습니다. 다음 탐색 또는 새로고침부터 변경된 구조가 표시됩니다.
+
+## Ubuntu 서버
+
+```bash
+sudo apt update
+sudo apt install -y nodejs npm
+git clone <repository-url>
+cd <repository-directory>
+npm install
+PORT=3000 npm start
+```
+
+UFW를 사용하는 서버에서 포트를 직접 공개하려면:
+
+```bash
+sudo ufw allow 3000/tcp
+```
+
+인터넷에 공개할 때는 Node 포트를 직접 노출하기보다 Nginx나 Caddy에서 HTTPS를 적용하고 `http://127.0.0.1:3000`으로 프록시하는 구성을 권장합니다. 프록시에서는 PDF Range 요청을 방해하지 않도록 Range 관련 헤더를 그대로 전달해야 합니다.
+
+## 테스트
+
+```bash
+npm test
+```
+
+테스트는 폴더 탐색과 검색, 한글 파일명 다운로드, PDF Range 응답, 경로 탈출 차단을 확인합니다.
