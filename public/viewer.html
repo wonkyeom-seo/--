@@ -12,6 +12,10 @@
       <a id="backLink" class="viewer-back" href="/" aria-label="자료 목록으로 돌아가기">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
       </a>
+      <button id="fileTreeToggle" class="viewer-files-button" type="button" aria-label="파일 목록 열기" aria-controls="fileTreePanel" aria-expanded="false">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM9 4v16M6.5 9h-1m1 3h-1m1 3h-1"/></svg>
+        <span>파일</span>
+      </button>
       <div class="viewer-title">
         <strong id="fileName">PDF 불러오는 중</strong>
         <small id="pageSummary">잠시만 기다려 주세요</small>
@@ -41,7 +45,32 @@
         <button id="zoomIn" class="tool-button" type="button" aria-label="확대">+</button>
         <button id="fitWidth" class="tool-button fit-button" type="button">너비 맞춤</button>
       </div>
+      <div class="toolbar-group view-mode-group" aria-label="보기 모드">
+        <button id="continuousView" class="tool-button mode-button" type="button" aria-pressed="false" title="아래로 이어서 보기">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h14v7H5zM5 14h14v7H5z"/></svg>
+          <span>연속</span>
+        </button>
+        <button id="spreadView" class="tool-button mode-button" type="button" aria-pressed="false" title="두 쪽씩 보기">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 5h8v14H3zM13 5h8v14h-8z"/></svg>
+          <span>2쪽</span>
+        </button>
+      </div>
     </div>
+
+    <div id="fileTreeBackdrop" class="file-tree-backdrop"></div>
+    <aside id="fileTreePanel" class="file-tree-panel" aria-label="파일 목록" aria-hidden="true">
+      <div class="file-tree-header">
+        <strong>파일</strong>
+        <button id="fileTreeClose" class="file-tree-close" type="button" aria-label="파일 목록 닫기">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <label class="file-tree-search">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.3-4.3m2.3-5.2a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+        <input id="fileTreeSearch" type="search" placeholder="파일 찾기" autocomplete="off">
+      </label>
+      <div id="fileTree" class="file-tree" role="tree"></div>
+    </aside>
 
     <main id="viewerStage" class="viewer-stage">
       <div id="viewerStatus" class="viewer-status" role="status">
@@ -49,7 +78,7 @@
         <strong>PDF를 불러오는 중입니다</strong>
         <small>큰 문서는 첫 페이지가 표시되기까지 잠시 걸릴 수 있습니다.</small>
       </div>
-      <canvas id="pdfCanvas" aria-label="PDF 페이지"></canvas>
+      <div id="pdfPages" class="pdf-pages" aria-label="PDF 페이지"></div>
     </main>
 
     <script type="module" src="/js/viewer.js"></script>
