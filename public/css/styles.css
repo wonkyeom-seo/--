@@ -384,7 +384,8 @@ svg {
   font-size: 0.7rem;
 }
 
-.viewer-download {
+.viewer-download,
+.viewer-action {
   display: flex;
   align-items: center;
   padding: 8px 10px;
@@ -394,6 +395,16 @@ svg {
   color: var(--text);
   font-size: 0.74rem;
   text-decoration: none;
+}
+
+.viewer-action {
+  background: transparent;
+  cursor: pointer;
+}
+
+.viewer-action:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 
 .viewer-toolbar {
@@ -794,14 +805,16 @@ svg {
     width: calc(100vw - 16px);
   }
 
-  .viewer-download {
+  .viewer-download,
+  .viewer-action {
     width: 36px;
     height: 36px;
     padding: 0;
     justify-content: center;
   }
 
-  .viewer-download span {
+  .viewer-download span,
+  .viewer-action span {
     display: none;
   }
 

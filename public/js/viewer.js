@@ -22,6 +22,7 @@ const zoomValue = document.querySelector('#zoomValue');
 const fitWidthButton = document.querySelector('#fitWidth');
 const continuousViewButton = document.querySelector('#continuousView');
 const spreadViewButton = document.querySelector('#spreadView');
+const printButton = document.querySelector('#printButton');
 const downloadLink = document.querySelector('#downloadLink');
 const backLink = document.querySelector('#backLink');
 const fileTreeToggle = document.querySelector('#fileTreeToggle');
@@ -42,6 +43,7 @@ let renderGeneration = 0;
 let pageObserver;
 let defaultPageRatio = 1.414;
 let loadingFinished = false;
+let printUrl = '';
 let treeLoaded = false;
 let treeSearchTimer;
 const renderTasks = new Set();
@@ -390,6 +392,8 @@ async function loadPdf() {
   fileNameElement.textContent = fileName;
   document.title = `${fileName} - PDF 뷰어`;
   const encodedPath = encodePath(relativePath);
+  printUrl = `/content/${encodedPath}`;
+  printButton.disabled = false;
   downloadLink.href = `/download/${encodedPath}`;
   backLink.href = parentPath ? `/?path=${encodeURIComponent(parentPath)}` : '/';
 
@@ -436,6 +440,22 @@ fitWidthButton.addEventListener('click', () => {
 });
 continuousViewButton.addEventListener('click', () => toggleViewMode('continuous'));
 spreadViewButton.addEventListener('click', () => toggleViewMode('spread'));
+printButton.addEventListener('click', () => {
+  if (!printUrl) return;
+  const printWindow = window.open(printUrl, '_blank');
+  if (!printWindow) return;
+
+  const requestPrint = () => {
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      // Some mobile browsers only allow printing from their PDF viewer menu.
+    }
+  };
+  printWindow.addEventListener('load', () => setTimeout(requestPrint, 700), { once: true });
+  setTimeout(requestPrint, 1800);
+});
 fileTreeToggle.addEventListener('click', () => setTreeOpen(!fileTreePanel.classList.contains('open')));
 fileTreeClose.addEventListener('click', () => setTreeOpen(false));
 fileTreeBackdrop.addEventListener('click', () => setTreeOpen(false));
