@@ -77,3 +77,17 @@ test('invalid ranges and traversal attempts are rejected', async () => {
   const contentResponse = await fetch(`${baseUrl}/content/%2E%2E/outside.txt`);
   assert.ok([400, 404].includes(contentResponse.status));
 });
+
+test('PWA manifest and PDF-only service worker are served', async () => {
+  const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
+  assert.equal(manifestResponse.status, 200);
+  const manifest = await manifestResponse.json();
+  assert.equal(manifest.display, 'standalone');
+  assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192'));
+  assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512'));
+
+  const workerResponse = await fetch(`${baseUrl}/service-worker.js`);
+  assert.equal(workerResponse.status, 200);
+  const worker = await workerResponse.text();
+  assert.match(worker, /const PDF_PATH_PREFIX = '\/content\/';/);
+});

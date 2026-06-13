@@ -59,6 +59,15 @@ function encodePath(pathValue) {
   return pathValue.split('/').map(encodeURIComponent).join('/');
 }
 
+function cacheCurrentPdf() {
+  if (!('serviceWorker' in navigator) || !printUrl) return;
+  navigator.serviceWorker.ready
+    .then((registration) => {
+      registration.active?.postMessage({ type: 'CACHE_PDF', url: printUrl });
+    })
+    .catch(() => {});
+}
+
 function setStatus(title, detail = '', isError = false) {
   status.classList.remove('hidden');
   status.innerHTML = `${isError ? '' : '<span class="spinner"></span>'}<strong>${title}</strong><small>${detail}</small>`;
@@ -416,6 +425,7 @@ async function loadPdf() {
     const firstViewport = firstPage.getViewport({ scale: 1 });
     defaultPageRatio = firstViewport.height / firstViewport.width;
     await renderDocument();
+    cacheCurrentPdf();
   } catch (error) {
     console.error(error);
     setStatus('PDF를 불러오지 못했습니다.', '파일이 손상되었거나 서버 연결이 끊겼습니다.', true);

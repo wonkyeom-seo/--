@@ -73,9 +73,12 @@ svg {
 }
 
 .header-inner {
+  display: flex;
+  align-items: center;
   width: min(920px, calc(100% - 32px));
   margin: 0 auto;
   padding: 12px 0;
+  gap: 8px;
 }
 
 .search-box {
@@ -102,6 +105,28 @@ svg {
   outline: 0;
   background: transparent;
   color: var(--text);
+}
+
+.install-button {
+  display: inline-flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 12px;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.install-button:hover {
+  background: var(--panel-hover);
+}
+
+.install-button[hidden] {
+  display: none;
 }
 
 .main-shell {
@@ -760,6 +785,16 @@ svg {
   .header-inner,
   .main-shell {
     width: calc(100% - 20px);
+  }
+
+  .install-button {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .install-button span {
+    display: none;
   }
 
   .main-shell {
