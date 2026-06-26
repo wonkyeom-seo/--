@@ -14,12 +14,10 @@ const APP_SHELL = [
   '/',
   '/index.html',
   '/viewer.html',
-  '/offline.html',
   '/css/styles.css',
   '/js/app.js',
   '/js/viewer.js',
   '/js/pwa.js',
-  '/js/offline.js',
   '/manifest.webmanifest',
   '/icons/app-icon.svg',
   '/vendor/pdfjs/build/pdf.mjs',
@@ -273,15 +271,6 @@ async function listCachedPdfs() {
   return entries.sort((a, b) => b.cachedAt.localeCompare(a.cachedAt));
 }
 
-async function deleteCachedPdf(urlValue) {
-  const url = canonicalPdfUrl(urlValue);
-  const cache = await caches.open(PDF_CACHE);
-  const meta = await caches.open(PDF_META_CACHE);
-  const deleted = await cache.delete(pdfCacheKey(url));
-  await meta.delete(metaKey(url.href));
-  return deleted;
-}
-
 async function appShellResponse(request) {
   const url = new URL(request.url);
   const key = appShellKey(url);
@@ -408,10 +397,6 @@ self.addEventListener('message', (event) => {
       } else if (type === 'IS_PDF_CACHED') {
         const cached = await pdfCacheEntry(event.data.url);
         postResult(event, type, { cached: Boolean(cached), entry: cached?.entry || null });
-      } else if (type === 'LIST_CACHED_PDFS') {
-        postResult(event, type, { entries: await listCachedPdfs() });
-      } else if (type === 'DELETE_CACHED_PDF') {
-        postResult(event, type, { deleted: await deleteCachedPdf(event.data.url), url: event.data.url });
       }
     } catch (error) {
       postResult(event, type, { error: error.message || 'PWA 작업을 처리하지 못했습니다.' });

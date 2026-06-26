@@ -83,9 +83,7 @@
       ? postToServiceWorker('SET_OFFLINE_MODE', { enabled }).then((data) => data.enabled !== false)
       : Promise.resolve(false),
     cachePdf: (url) => supportsServiceWorker ? postToServiceWorker('CACHE_PDF', { url }) : unsupported(),
-    isPdfCached: (url) => supportsServiceWorker ? postToServiceWorker('IS_PDF_CACHED', { url }) : Promise.resolve({ cached: false, entry: null }),
-    listCachedPdfs: () => supportsServiceWorker ? postToServiceWorker('LIST_CACHED_PDFS').then((data) => data.entries || []) : Promise.resolve([]),
-    deleteCachedPdf: (url) => supportsServiceWorker ? postToServiceWorker('DELETE_CACHED_PDF', { url }) : unsupported()
+    isPdfCached: (url) => supportsServiceWorker ? postToServiceWorker('IS_PDF_CACHED', { url }) : Promise.resolve({ cached: false, entry: null })
   };
 
   function setOfflineToggleState(toggle, enabled, disabled = false) {
