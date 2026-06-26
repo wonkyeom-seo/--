@@ -37,7 +37,7 @@
         const timeout = setTimeout(() => {
           pendingMessages.delete(id);
           reject(new Error('서비스 워커 응답 시간이 초과되었습니다.'));
-        }, 8000);
+        }, 120000);
 
         pendingMessages.set(id, {
           resolve: (data) => {
