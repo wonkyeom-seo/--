@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0d0f12">
+    <title>오프라인 저장</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/app-icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner offline-header-inner">
+        <a class="viewer-back" href="/" aria-label="자료 목록으로 돌아가기">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+        </a>
+        <div class="offline-page-title">
+          <strong>오프라인 저장</strong>
+          <small id="offlineCount">저장 목록을 불러오는 중</small>
+        </div>
+        <label class="search-box offline-search-box">
+          <span class="sr-only">저장 자료 검색</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.3-4.3m2.3-5.2a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+          <input id="offlineSearchInput" type="search" placeholder="저장 자료 검색" autocomplete="off">
+        </label>
+      </div>
+    </header>
+
+    <main class="main-shell">
+      <section class="browser-panel" aria-label="오프라인 저장 자료">
+        <div class="browser-toolbar">
+          <div class="offline-toolbar-copy">
+            <strong>저장된 PDF</strong>
+            <small>이 기기에 저장된 파일입니다.</small>
+          </div>
+          <button id="offlineRefreshButton" class="icon-button" type="button" title="새로고침" aria-label="새로고침">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+          </button>
+        </div>
+        <div id="offlineStatus" class="status" role="status"></div>
+        <div id="offlineEntries" class="entry-grid"></div>
+      </section>
+    </main>
+
+    <script src="/js/pwa.js" defer></script>
+    <script src="/js/offline.js" defer></script>
+  </body>
+</html>

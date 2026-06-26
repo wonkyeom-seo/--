@@ -106,7 +106,7 @@ test('invalid ranges and traversal attempts are rejected', async () => {
   assert.ok([400, 404].includes(contentResponse.status));
 });
 
-test('PWA manifest and PDF-only service worker are served', async () => {
+test('PWA manifest, offline page, and service worker are served', async () => {
   const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
   assert.equal(manifestResponse.status, 200);
   const manifest = await manifestResponse.json();
@@ -114,8 +114,15 @@ test('PWA manifest and PDF-only service worker are served', async () => {
   assert.ok(manifest.icons.some((icon) => icon.sizes === '192x192'));
   assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512'));
 
+  const offlineResponse = await fetch(`${baseUrl}/offline.html`);
+  assert.equal(offlineResponse.status, 200);
+  assert.match(await offlineResponse.text(), /id="offlineEntries"/);
+
   const workerResponse = await fetch(`${baseUrl}/service-worker.js`);
   assert.equal(workerResponse.status, 200);
   const worker = await workerResponse.text();
   assert.match(worker, /const PDF_PATH_PREFIX = '\/content\/';/);
+  assert.match(worker, /GET_OFFLINE_MODE/);
+  assert.match(worker, /LIST_CACHED_PDFS/);
+  assert.match(worker, /DELETE_CACHED_PDF/);
 });
