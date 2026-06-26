@@ -77,7 +77,7 @@
     supported: supportsServiceWorker,
     ready: supportsServiceWorker ? registerServiceWorker().then(() => navigator.serviceWorker.ready) : Promise.resolve(null),
     getOfflineMode: () => supportsServiceWorker
-      ? postToServiceWorker('GET_OFFLINE_MODE').then((data) => data.enabled !== false).catch(() => true)
+      ? postToServiceWorker('GET_OFFLINE_MODE').then((data) => data.enabled === true).catch(() => false)
       : Promise.resolve(false),
     setOfflineMode: (enabled) => supportsServiceWorker
       ? postToServiceWorker('SET_OFFLINE_MODE', { enabled }).then((data) => data.enabled !== false)
@@ -103,10 +103,10 @@
       return;
     }
 
-    setOfflineToggleState(toggle, true, true);
+    setOfflineToggleState(toggle, false, true);
     window.pwaControls.getOfflineMode()
       .then((enabled) => setOfflineToggleState(toggle, enabled, false))
-      .catch(() => setOfflineToggleState(toggle, true, false));
+      .catch(() => setOfflineToggleState(toggle, false, false));
 
     toggle.addEventListener('change', async () => {
       setOfflineToggleState(toggle, toggle.checked, true);

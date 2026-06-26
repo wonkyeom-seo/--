@@ -57,6 +57,11 @@ function lockerUrl(folderPath) {
   return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
 }
 
+async function isOfflineModeEnabled() {
+  if (!window.pwaControls?.supported) return false;
+  return window.pwaControls.getOfflineMode().catch(() => true);
+}
+
 async function readLockerPassword(folderPath) {
   if (lockerPasswordCache.has(folderPath)) return lockerPasswordCache.get(folderPath);
 
@@ -187,7 +192,7 @@ async function ensureFolderUnlocked(folderPath) {
 }
 
 async function collectFolderPdfs(folderPath, pdfs) {
-  const data = await fetchJson(`/api/browse?path=${encodeURIComponent(folderPath)}`);
+  const data = await fetchJson(`/api/browse?path=${encodeURIComponent(folderPath)}&offlineSave=1`);
 
   for (const entry of data.entries) {
     if (entry.type === 'file' && entry.viewable) {
@@ -221,6 +226,7 @@ async function saveFolderOffline(folderPath, button) {
 
   setOfflineFolderButtonState(button, 'saving', '폴더 PDF를 오프라인 저장 중입니다.');
   try {
+    if (!window.confirm('이 폴더를 저장하는 동안 네트워크 데이터를 사용합니다. 계속할까요?')) return;
     if (!await ensureFolderUnlocked(folderPath)) return;
 
     const pdfs = [];
@@ -283,7 +289,13 @@ function renderEntries(entries, searchMode = false) {
       if (searchMode) meta.classList.add('search-path');
       if (locked) actions.append(createLockBadge('잠긴 폴더'));
       actions.append(createActionButton('이 폴더 PDF 오프라인 저장', icons.offline, (button) => saveFolderOffline(entry.path, button)));
-      main.addEventListener('click', () => navigateTo(entry.path));
+      main.addEventListener('click', async () => {
+        if (locked && await isOfflineModeEnabled()) {
+          window.alert('오프라인 모드에서는 잠긴 폴더를 새로 확인하지 않습니다.');
+          return;
+        }
+        navigateTo(entry.path);
+      });
     } else {
       meta.textContent = searchMode ? `${entry.path} · ${formatSize(entry.size)}` : `${formatSize(entry.size)} · ${formatDate(entry.modifiedAt)}`;
       if (searchMode) meta.classList.add('search-path');
@@ -316,11 +328,13 @@ async function loadDirectory(pathValue, updateHistory = false) {
   showStatus('잠금 확인 중입니다.');
 
   try {
-    const lockedFolder = await findLockedFolder(pathValue);
-    if (version !== requestVersion) return;
-    if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
-      showStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 열 수 있습니다.');
-      return;
+    if (!await isOfflineModeEnabled()) {
+      const lockedFolder = await findLockedFolder(pathValue);
+      if (version !== requestVersion) return;
+      if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
+        showStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 열 수 있습니다.');
+        return;
+      }
     }
 
     currentPath = pathValue;

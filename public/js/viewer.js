@@ -153,6 +153,11 @@ function lockerUrl(folderPath) {
   return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
 }
 
+async function isOfflineModeEnabled() {
+  if (!window.pwaControls?.supported) return false;
+  return window.pwaControls.getOfflineMode().catch(() => true);
+}
+
 async function readLockerPassword(folderPath) {
   if (lockerPasswordCache.has(folderPath)) return lockerPasswordCache.get(folderPath);
 
@@ -264,8 +269,12 @@ async function openDirectory(pathValue) {
   const node = directoryNodes.get(pathValue);
   if (!node) return false;
 
-  const lockedFolder = await findLockedFolder(pathValue);
-  if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) return false;
+  if (await isOfflineModeEnabled()) {
+    if (node.row.classList.contains('locked') && !isFolderUnlocked(pathValue)) return false;
+  } else {
+    const lockedFolder = await findLockedFolder(pathValue);
+    if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) return false;
+  }
 
   if (!node.loaded) {
     await loadDirectoryTree(pathValue, node.children, pathValue.split('/').length);
@@ -534,7 +543,7 @@ async function loadPdf() {
   backLink.href = parentPath ? `/?path=${encodeURIComponent(parentPath)}` : '/';
 
   try {
-    if (!forceOffline) {
+    if (!forceOffline && !await isOfflineModeEnabled()) {
       setStatus('잠금 확인 중입니다.');
       const lockedFolder = await findLockedFolder(parentPath);
       if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {

@@ -7,8 +7,6 @@ const PDF_META_CACHE = 'pdf-metadata-v1';
 
 const PDF_PATH_PREFIX = '/content/';
 const OFFLINE_MODE_KEY = '/__pwa/offline-mode';
-const PDF_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const pdfRefreshTimes = new Map();
 
 const APP_SHELL = [
   '/',
@@ -75,6 +73,7 @@ function pdfCacheKey(urlValue) {
 
 function apiCacheKey(request) {
   const url = new URL(request.url);
+  url.searchParams.delete('offlineSave');
   return new Request(url.href, { method: 'GET', credentials: 'same-origin' });
 }
 
@@ -108,9 +107,9 @@ function pdfName(pathValue) {
 async function getOfflineMode() {
   const cache = await caches.open(SETTINGS_CACHE);
   const response = await cache.match(OFFLINE_MODE_KEY);
-  if (!response) return true;
-  const body = await response.json().catch(() => ({ enabled: true }));
-  return body.enabled !== false;
+  if (!response) return false;
+  const body = await response.json().catch(() => ({ enabled: false }));
+  return body.enabled === true;
 }
 
 async function setOfflineMode(enabled) {
@@ -207,29 +206,15 @@ async function cachePdf(urlValue, options = {}) {
     return { cached: true, entry };
   }
 
-  const response = await fetch(key, { cache: 'no-store' });
+  const downloadUrl = new URL(key.url);
+  downloadUrl.searchParams.set('__pwaDownload', '1');
+  const response = await fetch(new Request(downloadUrl.href, { method: 'GET', credentials: 'same-origin', cache: 'no-store' }));
   if (response.ok && response.headers.get('content-type')?.includes('application/pdf')) {
     await cache.put(key, response.clone());
     const entry = await writePdfMeta(key, response);
     return { cached: true, entry };
   }
   return { cached: false };
-}
-
-async function updatePdfInBackground(key) {
-  try {
-    await cachePdf(key.url, { refresh: true });
-  } catch {
-    // Network refresh is best effort; the stored copy remains usable.
-  }
-}
-
-async function updatePdfInBackgroundIfDue(key) {
-  const now = Date.now();
-  const lastRefresh = pdfRefreshTimes.get(key.url) || 0;
-  if (now - lastRefresh < PDF_REFRESH_INTERVAL_MS) return;
-  pdfRefreshTimes.set(key.url, now);
-  await updatePdfInBackground(key);
 }
 
 async function pdfCacheEntry(urlValue) {
@@ -253,8 +238,14 @@ async function servePdf(request, event) {
   const cached = await pdfCacheEntry(url.href);
 
   if (cached && (offlineMode || cacheOnly)) {
-    if (offlineMode && !cacheOnly) event.waitUntil(updatePdfInBackgroundIfDue(cached.key));
     return responseForPdfRequest(request, cached.response);
+  }
+
+  if (offlineMode || cacheOnly) {
+    return new Response('오프라인 모드에서는 저장되지 않은 PDF를 불러오지 않습니다.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=UTF-8' }
+    });
   }
 
   return fetch(request);
@@ -275,8 +266,20 @@ async function appShellResponse(request) {
   const url = new URL(request.url);
   const key = appShellKey(url);
   const cache = await caches.open(APP_CACHE);
+  const offlineMode = await getOfflineMode();
 
   if (request.mode === 'navigate') {
+    if (offlineMode) {
+      if (key) {
+        const cached = await cache.match(key);
+        if (cached) return cached;
+      }
+      return cache.match('/index.html') || new Response('오프라인 모드에서 열 수 없는 화면입니다.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=UTF-8' }
+      });
+    }
+
     try {
       const response = await fetch(request);
       if (response.ok && key) await cache.put(key, response.clone());
@@ -293,6 +296,9 @@ async function appShellResponse(request) {
   if (!key) return fetch(request);
   const cached = await cache.match(key);
   if (cached) return cached;
+  if (offlineMode) {
+    return new Response('', { status: 503 });
+  }
   const response = await fetch(request);
   if (response.ok) await cache.put(key, response.clone());
   return response;
@@ -302,6 +308,9 @@ async function runtimeAssetResponse(request) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
+  if (await getOfflineMode()) {
+    return new Response('', { status: 503 });
+  }
   const response = await fetch(request);
   if (response.ok) await cache.put(request, response.clone());
   return response;
@@ -330,17 +339,29 @@ function cachedSearchResponse(query) {
 async function apiListResponse(request) {
   const offlineMode = await getOfflineMode();
   const key = apiCacheKey(request);
+  const url = new URL(request.url);
+
+  if (offlineMode && url.searchParams.get('offlineSave') !== '1') {
+    if (url.pathname === '/api/search') return cachedSearchResponse(url.searchParams.get('q') || '');
+
+    const cache = await caches.open(API_CACHE);
+    const cached = await cache.match(key);
+    if (cached) return cached;
+    return new Response(JSON.stringify({ error: '오프라인 모드에서는 저장된 목록만 볼 수 있습니다.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
   try {
     const response = await fetch(request);
-    if (response.ok && offlineMode) {
+    if (response.ok) {
       const cache = await caches.open(API_CACHE);
       await cache.put(key, response.clone());
     }
     return response;
   } catch (error) {
     if (!offlineMode) throw error;
-    const url = new URL(request.url);
     if (url.pathname === '/api/search') return cachedSearchResponse(url.searchParams.get('q') || '');
 
     const cache = await caches.open(API_CACHE);
@@ -350,6 +371,16 @@ async function apiListResponse(request) {
   }
 }
 
+async function sameOriginFallbackResponse(request) {
+  if (await getOfflineMode()) {
+    return new Response('오프라인 모드에서는 네트워크 요청을 보내지 않습니다.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=UTF-8' }
+    });
+  }
+  return fetch(request);
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
@@ -357,6 +388,7 @@ self.addEventListener('fetch', (event) => {
   if (!isSameOrigin(url)) return;
 
   if (isPdfUrl(url)) {
+    if (url.searchParams.get('__pwaDownload') === '1') return;
     event.respondWith(servePdf(event.request, event));
     return;
   }
@@ -373,7 +405,10 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate' || appShellKey(url)) {
     event.respondWith(appShellResponse(event.request));
+    return;
   }
+
+  event.respondWith(sameOriginFallbackResponse(event.request));
 });
 
 function postResult(event, type, payload) {
