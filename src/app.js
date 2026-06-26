@@ -6,6 +6,7 @@ const path = require('node:path');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PDFJS_DIR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist');
 const SEARCH_LIMIT = 100;
+const LOCKER_FILE = '.locker';
 
 function isInside(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -35,8 +36,8 @@ function encodePath(relativePath) {
     .join('/');
 }
 
-function formatEntry(dirent, stats, relativePath) {
-  return {
+function formatEntry(dirent, stats, relativePath, metadata = {}) {
+  const entry = {
     name: dirent.name,
     path: relativePath,
     type: dirent.isDirectory() ? 'directory' : 'file',
@@ -45,6 +46,9 @@ function formatEntry(dirent, stats, relativePath) {
     extension: dirent.isFile() ? path.extname(dirent.name).slice(1).toLowerCase() : null,
     viewable: dirent.isFile() && path.extname(dirent.name).toLowerCase() === '.pdf'
   };
+  if (metadata.locked) entry.locked = true;
+  if (metadata.lockedBy !== undefined) entry.lockedBy = metadata.lockedBy;
+  return entry;
 }
 
 function sortEntries(a, b) {
@@ -132,19 +136,34 @@ function createApp(options = {}) {
     return { relativePath, realPath: realCandidate, stats };
   }
 
+  async function hasLocker(absoluteDirectory) {
+    try {
+      const stats = await fsp.stat(path.join(absoluteDirectory, LOCKER_FILE));
+      return stats.isFile();
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+
   async function listDirectory(relativePath) {
     const directory = await resolveExistingPath(relativePath, 'directory');
     const dirents = await fsp.readdir(directory.realPath, { withFileTypes: true });
     const entries = await Promise.all(
       dirents
-        .filter((dirent) => dirent.isDirectory() || dirent.isFile())
+        .filter((dirent) => dirent.name !== LOCKER_FILE && (dirent.isDirectory() || dirent.isFile()))
         .map(async (dirent) => {
           const entryPath = directory.relativePath ? `${directory.relativePath}/${dirent.name}` : dirent.name;
           const stats = await fsp.stat(path.join(directory.realPath, dirent.name));
-          return formatEntry(dirent, stats, entryPath);
+          const locked = dirent.isDirectory() && await hasLocker(path.join(directory.realPath, dirent.name));
+          return formatEntry(dirent, stats, entryPath, { locked });
         })
     );
-    return entries.sort(sortEntries);
+    return {
+      path: directory.relativePath,
+      locked: await hasLocker(directory.realPath),
+      entries: entries.sort(sortEntries)
+    };
   }
 
   async function searchFiles(query) {
@@ -154,7 +173,7 @@ function createApp(options = {}) {
     const results = [];
     const root = await resolveExistingPath('', 'directory');
 
-    async function walk(absoluteDirectory, relativeDirectory) {
+    async function walk(absoluteDirectory, relativeDirectory, lockedBy) {
       if (results.length >= SEARCH_LIMIT) return;
       const dirents = await fsp.readdir(absoluteDirectory, { withFileTypes: true });
       dirents.sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true, sensitivity: 'base' }));
@@ -162,19 +181,27 @@ function createApp(options = {}) {
       for (const dirent of dirents) {
         if (results.length >= SEARCH_LIMIT) break;
         if (!dirent.isDirectory() && !dirent.isFile()) continue;
+        if (dirent.name === LOCKER_FILE) continue;
 
         const relativePath = relativeDirectory ? `${relativeDirectory}/${dirent.name}` : dirent.name;
+        const absolutePath = path.join(absoluteDirectory, dirent.name);
+        const locked = dirent.isDirectory() && await hasLocker(absolutePath);
+        const metadata = {
+          locked,
+          lockedBy
+        };
+
         if (dirent.name.toLocaleLowerCase('ko').includes(needle)) {
-          const stats = await fsp.stat(path.join(absoluteDirectory, dirent.name));
-          results.push(formatEntry(dirent, stats, relativePath));
+          const stats = await fsp.stat(absolutePath);
+          results.push(formatEntry(dirent, stats, relativePath, metadata));
         }
         if (dirent.isDirectory()) {
-          await walk(path.join(absoluteDirectory, dirent.name), relativePath);
+          await walk(absolutePath, relativePath, lockedBy ?? (locked ? relativePath : undefined));
         }
       }
     }
 
-    await walk(root.realPath, '');
+    await walk(root.realPath, '', await hasLocker(root.realPath) ? '' : undefined);
     return results.sort(sortEntries);
   }
 
@@ -217,8 +244,8 @@ function createApp(options = {}) {
   app.get('/api/browse', async (req, res, next) => {
     try {
       const relativePath = normalizeRelativePath(req.query.path || '');
-      const entries = await listDirectory(relativePath);
-      res.json({ path: relativePath, entries });
+      const directory = await listDirectory(relativePath);
+      res.json(directory);
     } catch (error) {
       next(error);
     }

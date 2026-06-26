@@ -277,6 +277,10 @@ svg {
   color: #8ebaa9;
 }
 
+.locked-folder .entry-icon.folder {
+  color: #d3b36d;
+}
+
 .entry-icon.pdf {
   color: #c78a7a;
 }
@@ -335,6 +339,15 @@ svg {
 .action-link:hover {
   background: #272d34;
   color: var(--text);
+}
+
+.lock-badge {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 6px;
+  color: #d3b36d;
 }
 
 .search-path {
@@ -618,6 +631,16 @@ svg {
 
 .tree-entry-icon.folder {
   color: #6ea5d8;
+}
+
+.tree-row.locked .tree-entry-icon.folder,
+.tree-lock-icon {
+  color: #d3b36d;
+}
+
+.tree-lock-icon {
+  width: 0.85rem;
+  min-width: 0.85rem;
 }
 
 .tree-loading {

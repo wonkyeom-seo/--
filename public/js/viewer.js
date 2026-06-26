@@ -52,8 +52,11 @@ const directoryNodes = new Map();
 const treeIcons = {
   chevron: '<svg class="tree-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
   folder: '<svg class="tree-entry-icon folder" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6.5h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11Z"/></svg>',
-  file: '<svg class="tree-entry-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 0v5h5"/></svg>'
+  file: '<svg class="tree-entry-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 0v5h5"/></svg>',
+  lock: '<svg class="tree-lock-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>'
 };
+const unlockedFolderPrefix = 'exam-data-library:unlocked:';
+const lockerPasswordCache = new Map();
 
 function encodePath(pathValue) {
   return pathValue.split('/').map(encodeURIComponent).join('/');
@@ -86,6 +89,76 @@ async function fetchJson(url) {
   return body;
 }
 
+function lockerKey(folderPath) {
+  return `${unlockedFolderPrefix}${folderPath}`;
+}
+
+function isFolderUnlocked(folderPath) {
+  return sessionStorage.getItem(lockerKey(folderPath)) === '1';
+}
+
+function markFolderUnlocked(folderPath) {
+  sessionStorage.setItem(lockerKey(folderPath), '1');
+}
+
+function lockerUrl(folderPath) {
+  return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
+}
+
+async function readLockerPassword(folderPath) {
+  if (lockerPasswordCache.has(folderPath)) return lockerPasswordCache.get(folderPath);
+
+  const response = await fetch(lockerUrl(folderPath), { cache: 'no-store' });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('잠금 정보를 읽지 못했습니다.');
+
+  const password = (await response.text()).trim();
+  lockerPasswordCache.set(folderPath, password);
+  return password;
+}
+
+function folderDisplayName(folderPath) {
+  return folderPath ? folderPath.split('/').at(-1) : '전체 자료';
+}
+
+function folderCandidates(pathValue) {
+  const segments = pathValue ? pathValue.split('/').filter(Boolean) : [];
+  const candidates = [''];
+  let accumulated = '';
+  segments.forEach((segment) => {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
+    candidates.push(accumulated);
+  });
+  return candidates;
+}
+
+async function findLockedFolder(pathValue) {
+  for (const folderPath of folderCandidates(pathValue)) {
+    if (isFolderUnlocked(folderPath)) continue;
+    const password = await readLockerPassword(folderPath);
+    if (password !== null) return { path: folderPath, password };
+  }
+  return null;
+}
+
+function promptForLocker(folderPath, password) {
+  const folderName = folderDisplayName(folderPath);
+
+  while (true) {
+    const input = window.prompt(`"${folderName}" 폴더 비밀번호를 입력하세요.`);
+    if (input === null) return false;
+    if (input.trim() === password) {
+      markFolderUnlocked(folderPath);
+      return true;
+    }
+    window.alert('비밀번호가 맞지 않습니다.');
+  }
+}
+
+function isVisibleInTree(entry) {
+  return entry.name !== '.locker' && (entry.lockedBy === undefined || isFolderUnlocked(entry.lockedBy));
+}
+
 function createTreeRow(entry, depth) {
   const item = document.createElement('div');
   item.className = 'tree-item';
@@ -98,9 +171,11 @@ function createTreeRow(entry, depth) {
   row.title = entry.name;
 
   if (entry.type === 'directory') {
+    const locked = entry.locked && !isFolderUnlocked(entry.path);
     row.type = 'button';
     row.setAttribute('aria-expanded', 'false');
-    row.innerHTML = `${treeIcons.chevron}${treeIcons.folder}<span>${entry.name}</span>`;
+    row.classList.toggle('locked', locked);
+    row.innerHTML = `${treeIcons.chevron}${treeIcons.folder}${locked ? treeIcons.lock : ''}<span>${entry.name}</span>`;
     const children = document.createElement('div');
     children.className = 'tree-children';
     children.setAttribute('role', 'group');
@@ -129,7 +204,9 @@ async function loadDirectoryTree(pathValue, container, depth) {
   container.innerHTML = '<div class="tree-loading">불러오는 중...</div>';
   try {
     const data = await fetchJson(`/api/browse?path=${encodeURIComponent(pathValue)}`);
-    container.replaceChildren(...data.entries.map((entry) => createTreeRow(entry, depth)));
+    const entries = data.entries.filter(isVisibleInTree);
+    container.replaceChildren(...entries.map((entry) => createTreeRow(entry, depth)));
+    if (!entries.length) container.innerHTML = '<div class="tree-loading">비어 있음</div>';
   } catch (error) {
     container.innerHTML = `<div class="tree-loading">${error.message}</div>`;
   }
@@ -137,7 +214,11 @@ async function loadDirectoryTree(pathValue, container, depth) {
 
 async function openDirectory(pathValue) {
   const node = directoryNodes.get(pathValue);
-  if (!node) return;
+  if (!node) return false;
+
+  const lockedFolder = await findLockedFolder(pathValue);
+  if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) return false;
+
   if (!node.loaded) {
     await loadDirectoryTree(pathValue, node.children, pathValue.split('/').length);
     node.loaded = true;
@@ -145,6 +226,7 @@ async function openDirectory(pathValue) {
   node.row.setAttribute('aria-expanded', 'true');
   node.row.classList.add('expanded');
   node.children.classList.add('open');
+  return true;
 }
 
 async function toggleDirectory(pathValue) {
@@ -190,7 +272,7 @@ async function searchTree(query) {
   fileTreeElement.innerHTML = '<div class="tree-loading">검색 중...</div>';
   try {
     const data = await fetchJson(`/api/search?q=${encodeURIComponent(trimmed)}`);
-    const results = data.entries.filter((entry) => entry.type === 'directory' || entry.viewable);
+    const results = data.entries.filter((entry) => (entry.type === 'directory' || entry.viewable) && isVisibleInTree(entry));
     fileTreeElement.replaceChildren(...results.map((entry) => createTreeRow(entry, 0)));
     if (!results.length) fileTreeElement.innerHTML = '<div class="tree-loading">검색 결과 없음</div>';
   } catch (error) {
@@ -401,12 +483,20 @@ async function loadPdf() {
   fileNameElement.textContent = fileName;
   document.title = `${fileName} - PDF 뷰어`;
   const encodedPath = encodePath(relativePath);
-  printUrl = `/content/${encodedPath}`;
-  printButton.disabled = false;
-  downloadLink.href = `/download/${encodedPath}`;
   backLink.href = parentPath ? `/?path=${encodeURIComponent(parentPath)}` : '/';
 
   try {
+    setStatus('잠금 확인 중입니다.');
+    const lockedFolder = await findLockedFolder(parentPath);
+    if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
+      setStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 PDF를 열 수 있습니다.', true);
+      return;
+    }
+
+    printUrl = `/content/${encodedPath}`;
+    printButton.disabled = false;
+    downloadLink.href = `/download/${encodedPath}`;
+
     const loadingTask = pdfjsLib.getDocument({
       url: `/content/${encodedPath}`,
       cMapUrl: '/vendor/pdfjs/cmaps/',

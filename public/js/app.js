@@ -10,12 +10,15 @@ const icons = {
   pdf: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 0v5h5M8.5 15.5h7M8.5 12h7"/></svg>',
   file: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 0v5h5"/></svg>',
   view: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>',
-  download: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></svg>'
+  download: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></svg>',
+  lock: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>'
 };
 
 let currentPath = new URLSearchParams(location.search).get('path') || '';
 let searchTimer;
 let requestVersion = 0;
+const unlockedFolderPrefix = 'exam-data-library:unlocked:';
+const lockerPasswordCache = new Map();
 
 function encodePath(relativePath) {
   return relativePath.split('/').map(encodeURIComponent).join('/');
@@ -35,6 +38,72 @@ function formatSize(bytes) {
 
 function formatDate(isoDate) {
   return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(isoDate));
+}
+
+function lockerKey(folderPath) {
+  return `${unlockedFolderPrefix}${folderPath}`;
+}
+
+function isFolderUnlocked(folderPath) {
+  return sessionStorage.getItem(lockerKey(folderPath)) === '1';
+}
+
+function markFolderUnlocked(folderPath) {
+  sessionStorage.setItem(lockerKey(folderPath), '1');
+}
+
+function lockerUrl(folderPath) {
+  return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
+}
+
+async function readLockerPassword(folderPath) {
+  if (lockerPasswordCache.has(folderPath)) return lockerPasswordCache.get(folderPath);
+
+  const response = await fetch(lockerUrl(folderPath), { cache: 'no-store' });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('잠금 정보를 읽지 못했습니다.');
+
+  const password = (await response.text()).trim();
+  lockerPasswordCache.set(folderPath, password);
+  return password;
+}
+
+function folderDisplayName(folderPath) {
+  return folderPath ? folderPath.split('/').at(-1) : '전체 자료';
+}
+
+function folderCandidates(pathValue) {
+  const segments = pathValue ? pathValue.split('/').filter(Boolean) : [];
+  const candidates = [''];
+  let accumulated = '';
+  segments.forEach((segment) => {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
+    candidates.push(accumulated);
+  });
+  return candidates;
+}
+
+async function findLockedFolder(pathValue) {
+  for (const folderPath of folderCandidates(pathValue)) {
+    if (isFolderUnlocked(folderPath)) continue;
+    const password = await readLockerPassword(folderPath);
+    if (password !== null) return { path: folderPath, password };
+  }
+  return null;
+}
+
+function promptForLocker(folderPath, password) {
+  const folderName = folderDisplayName(folderPath);
+
+  while (true) {
+    const input = window.prompt(`"${folderName}" 폴더 비밀번호를 입력하세요.`);
+    if (input === null) return false;
+    if (input.trim() === password) {
+      markFolderUnlocked(folderPath);
+      return true;
+    }
+    window.alert('비밀번호가 맞지 않습니다.');
+  }
 }
 
 function showStatus(title, detail = '') {
@@ -88,23 +157,39 @@ function createActionLink(label, href, icon, download = false) {
   return link;
 }
 
+function createLockBadge(label) {
+  const badge = document.createElement('span');
+  badge.className = 'lock-badge';
+  badge.title = label;
+  badge.setAttribute('aria-label', label);
+  badge.innerHTML = icons.lock;
+  return badge;
+}
+
+function isVisibleInSearch(entry) {
+  return entry.lockedBy === undefined || isFolderUnlocked(entry.lockedBy);
+}
+
 function renderEntries(entries, searchMode = false) {
   entriesElement.replaceChildren();
   hideStatus();
 
-  if (!entries.length) {
+  const visibleEntries = entries.filter((entry) => entry.name !== '.locker' && (!searchMode || isVisibleInSearch(entry)));
+
+  if (!visibleEntries.length) {
     showStatus(searchMode ? '검색 결과가 없습니다.' : '이 폴더는 비어 있습니다.', searchMode ? '다른 검색어를 입력해 보세요.' : 'data 폴더에 자료를 추가하면 바로 표시됩니다.');
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  entries.forEach((entry) => {
+  visibleEntries.forEach((entry) => {
     const card = entryTemplate.content.firstElementChild.cloneNode(true);
     const main = card.querySelector('.entry-main');
     const icon = card.querySelector('.entry-icon');
     const name = card.querySelector('.entry-name');
     const meta = card.querySelector('.entry-meta');
     const actions = card.querySelector('.entry-actions');
+    const locked = entry.type === 'directory' && entry.locked && !isFolderUnlocked(entry.path);
 
     name.textContent = entry.name;
     icon.classList.add(entry.type === 'directory' ? 'folder' : entry.viewable ? 'pdf' : 'file');
@@ -112,8 +197,12 @@ function renderEntries(entries, searchMode = false) {
 
     if (entry.type === 'directory') {
       card.classList.add('folder-card');
-      meta.textContent = searchMode ? entry.path : `폴더 · ${formatDate(entry.modifiedAt)}`;
+      if (locked) card.classList.add('locked-folder');
+      meta.textContent = searchMode
+        ? `${entry.path}${locked ? ' · 잠김' : ''}`
+        : `${locked ? '잠김 폴더' : '폴더'} · ${formatDate(entry.modifiedAt)}`;
       if (searchMode) meta.classList.add('search-path');
+      if (locked) actions.append(createLockBadge('잠긴 폴더'));
       main.addEventListener('click', () => navigateTo(entry.path));
     } else {
       meta.textContent = searchMode ? `${entry.path} · ${formatSize(entry.size)}` : `${formatSize(entry.size)} · ${formatDate(entry.modifiedAt)}`;
@@ -142,17 +231,27 @@ async function fetchJson(url) {
 
 async function loadDirectory(pathValue, updateHistory = false) {
   const version = ++requestVersion;
-  currentPath = pathValue;
   searchInput.value = '';
-  buildBreadcrumbs(currentPath);
-  showStatus('자료를 불러오는 중입니다.');
-
-  if (updateHistory) {
-    const url = currentPath ? `/?path=${encodeURIComponent(currentPath)}` : '/';
-    history.pushState({ path: currentPath }, '', url);
-  }
+  buildBreadcrumbs(pathValue);
+  showStatus('잠금 확인 중입니다.');
 
   try {
+    const lockedFolder = await findLockedFolder(pathValue);
+    if (version !== requestVersion) return;
+    if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
+      showStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 열 수 있습니다.');
+      return;
+    }
+
+    currentPath = pathValue;
+    buildBreadcrumbs(currentPath);
+    showStatus('자료를 불러오는 중입니다.');
+
+    if (updateHistory) {
+      const url = currentPath ? `/?path=${encodeURIComponent(currentPath)}` : '/';
+      history.pushState({ path: currentPath }, '', url);
+    }
+
     const data = await fetchJson(`/api/browse?path=${encodeURIComponent(currentPath)}`);
     if (version === requestVersion) renderEntries(data.entries);
   } catch (error) {

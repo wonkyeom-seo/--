@@ -15,6 +15,8 @@ before(async () => {
   await fs.mkdir(path.join(tempRoot, '나 폴더'), { recursive: true });
   await fs.writeFile(path.join(tempRoot, '[시험] 학습자료.pdf'), Buffer.from('0123456789abcdefghijklmnopqrstuvwxyz'));
   await fs.writeFile(path.join(tempRoot, '가 폴더', '문제.txt'), 'study');
+  await fs.writeFile(path.join(tempRoot, '나 폴더', '.locker'), 'secret');
+  await fs.writeFile(path.join(tempRoot, '나 폴더', '비밀.pdf'), 'locked');
 
   const app = createApp({ dataRoot: tempRoot });
   server = app.listen(0, '127.0.0.1');
@@ -34,10 +36,36 @@ test('browse returns directories first and supports empty folders', async () => 
   const root = await rootResponse.json();
   assert.deepEqual(root.entries.map((entry) => entry.type), ['directory', 'directory', 'file']);
   assert.equal(root.entries[0].name, '가 폴더');
+  assert.equal(root.entries[1].name, '나 폴더');
+  assert.equal(root.entries[1].locked, true);
 
   const emptyResponse = await fetch(`${baseUrl}/api/browse?path=${encodeURIComponent('가 폴더/빈 폴더')}`);
   assert.equal(emptyResponse.status, 200);
   assert.deepEqual((await emptyResponse.json()).entries, []);
+});
+
+test('locker files are hidden from listings without blocking direct file serving', async () => {
+  const browseResponse = await fetch(`${baseUrl}/api/browse?path=${encodeURIComponent('나 폴더')}`);
+  assert.equal(browseResponse.status, 200);
+  const browseBody = await browseResponse.json();
+  assert.equal(browseBody.locked, true);
+  assert.deepEqual(browseBody.entries.map((entry) => entry.name), ['비밀.pdf']);
+
+  const searchResponse = await fetch(`${baseUrl}/api/search?q=${encodeURIComponent('비밀')}`);
+  assert.equal(searchResponse.status, 200);
+  const searchBody = await searchResponse.json();
+  assert.equal(searchBody.entries.length, 1);
+  assert.equal(searchBody.entries[0].path, '나 폴더/비밀.pdf');
+  assert.equal(searchBody.entries[0].lockedBy, '나 폴더');
+
+  const lockerSearchResponse = await fetch(`${baseUrl}/api/search?q=locker`);
+  assert.equal(lockerSearchResponse.status, 200);
+  assert.equal((await lockerSearchResponse.json()).entries.length, 0);
+
+  const lockerPath = ['나 폴더', '.locker'].map(encodeURIComponent).join('/');
+  const lockerResponse = await fetch(`${baseUrl}/content/${lockerPath}`);
+  assert.equal(lockerResponse.status, 200);
+  assert.equal(await lockerResponse.text(), 'secret');
 });
 
 test('search finds nested files and Korean names', async () => {
