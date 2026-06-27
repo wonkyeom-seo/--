@@ -1,4 +1,4 @@
-const APP_CACHE = 'app-shell-v2';
+const APP_CACHE = 'app-shell-v3';
 const PDF_CACHE = 'pdf-files-v1';
 const API_CACHE = 'api-lists-v1';
 const RUNTIME_CACHE = 'runtime-assets-v1';
@@ -49,6 +49,13 @@ function isPdfUrl(url) {
 
 function isApiListUrl(url) {
   return isSameOrigin(url) && (url.pathname === '/api/browse' || url.pathname === '/api/search');
+}
+
+function isExplicitLockerCheck(url) {
+  return isSameOrigin(url)
+    && url.pathname.startsWith(PDF_PATH_PREFIX)
+    && url.pathname.endsWith('/.locker')
+    && url.searchParams.get('offlineSave') === '1';
 }
 
 function isRuntimeAssetUrl(url) {
@@ -386,6 +393,8 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
   if (!isSameOrigin(url)) return;
+
+  if (isExplicitLockerCheck(url)) return;
 
   if (isPdfUrl(url)) {
     if (url.searchParams.get('__pwaDownload') === '1') return;

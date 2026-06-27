@@ -66,6 +66,10 @@ test('locker files are hidden from listings without blocking direct file serving
   const lockerResponse = await fetch(`${baseUrl}/content/${lockerPath}`);
   assert.equal(lockerResponse.status, 200);
   assert.equal(await lockerResponse.text(), 'secret');
+
+  const offlineSaveLockerResponse = await fetch(`${baseUrl}/content/${lockerPath}?offlineSave=1`);
+  assert.equal(offlineSaveLockerResponse.status, 200);
+  assert.equal(await offlineSaveLockerResponse.text(), 'secret');
 });
 
 test('search finds nested files and Korean names', async () => {
@@ -119,4 +123,10 @@ test('PWA manifest and service worker are served', async () => {
   const worker = await workerResponse.text();
   assert.match(worker, /const PDF_PATH_PREFIX = '\/content\/';/);
   assert.match(worker, /GET_OFFLINE_MODE/);
+  assert.match(worker, /isExplicitLockerCheck/);
+  assert.match(worker, /url\.searchParams\.get\('offlineSave'\) === '1'/);
+
+  const appResponse = await fetch(`${baseUrl}/js/app.js`);
+  const appScript = await appResponse.text();
+  assert.match(appScript, /ensureFolderUnlocked\(folderPath, true\)/);
 });

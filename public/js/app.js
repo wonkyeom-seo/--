@@ -53,8 +53,9 @@ function markFolderUnlocked(folderPath) {
   sessionStorage.setItem(lockerKey(folderPath), '1');
 }
 
-function lockerUrl(folderPath) {
-  return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
+function lockerUrl(folderPath, allowNetwork = false) {
+  const url = folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
+  return allowNetwork ? `${url}?offlineSave=1` : url;
 }
 
 async function isOfflineModeEnabled() {
@@ -62,10 +63,10 @@ async function isOfflineModeEnabled() {
   return window.pwaControls.getOfflineMode().catch(() => true);
 }
 
-async function readLockerPassword(folderPath) {
+async function readLockerPassword(folderPath, allowNetwork = false) {
   if (lockerPasswordCache.has(folderPath)) return lockerPasswordCache.get(folderPath);
 
-  const response = await fetch(lockerUrl(folderPath), { cache: 'no-store' });
+  const response = await fetch(lockerUrl(folderPath, allowNetwork), { cache: 'no-store' });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error('잠금 정보를 읽지 못했습니다.');
 
@@ -89,10 +90,10 @@ function folderCandidates(pathValue) {
   return candidates;
 }
 
-async function findLockedFolder(pathValue) {
+async function findLockedFolder(pathValue, allowNetwork = false) {
   for (const folderPath of folderCandidates(pathValue)) {
     if (isFolderUnlocked(folderPath)) continue;
-    const password = await readLockerPassword(folderPath);
+    const password = await readLockerPassword(folderPath, allowNetwork);
     if (password !== null) return { path: folderPath, password };
   }
   return null;
@@ -186,8 +187,8 @@ function createLockBadge(label) {
   return badge;
 }
 
-async function ensureFolderUnlocked(folderPath) {
-  const lockedFolder = await findLockedFolder(folderPath);
+async function ensureFolderUnlocked(folderPath, allowNetwork = false) {
+  const lockedFolder = await findLockedFolder(folderPath, allowNetwork);
   return !lockedFolder || promptForLocker(lockedFolder.path, lockedFolder.password);
 }
 
@@ -198,7 +199,7 @@ async function collectFolderPdfs(folderPath, pdfs) {
     if (entry.type === 'file' && entry.viewable) {
       pdfs.push(entry);
     } else if (entry.type === 'directory') {
-      if (await ensureFolderUnlocked(entry.path)) {
+      if (await ensureFolderUnlocked(entry.path, true)) {
         await collectFolderPdfs(entry.path, pdfs);
       }
     }
@@ -227,7 +228,7 @@ async function saveFolderOffline(folderPath, button) {
   setOfflineFolderButtonState(button, 'saving', '폴더 PDF를 오프라인 저장 중입니다.');
   try {
     if (!window.confirm('이 폴더를 저장하는 동안 네트워크 데이터를 사용합니다. 계속할까요?')) return;
-    if (!await ensureFolderUnlocked(folderPath)) return;
+    if (!await ensureFolderUnlocked(folderPath, true)) return;
 
     const pdfs = [];
     await collectFolderPdfs(folderPath, pdfs);
