@@ -134,6 +134,7 @@ async function fetchJson(url) {
   const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || '파일 목록을 불러오지 못했습니다.');
+  body.fromOfflineCache = response.headers.get('X-PWA-Source') === 'cache';
   return body;
 }
 
@@ -537,7 +538,7 @@ async function loadPdf() {
       const lockers = Array.isArray(folderData.lockers)
         ? folderData.lockers
         : (folderData.locked ? [parentPath] : []);
-      if (!await ensureLockedFolders(lockers)) {
+      if (!folderData.fromOfflineCache && !await ensureLockedFolders(lockers)) {
         setStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 PDF를 열 수 있습니다.', true);
         return;
       }

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const vm = require('node:vm');
 const { after, before, test } = require('node:test');
 const { createApp } = require('../src/app');
 
@@ -134,4 +135,66 @@ test('PWA manifest and service worker are served', async () => {
   assert.match(appScript, /allowWhenDisabled: true/);
   assert.match(appScript, /!entry\.locked \|\| await ensureLockedFolders\(\[entry\.path\], true\)/);
   assert.doesNotMatch(appScript, /오프라인 모드를 켠 뒤 저장할 수 있습니다/);
+});
+
+test('service worker uses cached folder lists when the server is unavailable', async () => {
+  const listeners = {};
+  const cachedList = { path: '', lockers: [], entries: [{ name: '저장됨', type: 'directory' }] };
+  let networkMode = 'throw';
+
+  const settingsCache = {
+    match: async () => undefined,
+    put: async () => undefined
+  };
+  const apiCache = {
+    match: async () => new Response(JSON.stringify(cachedList), {
+      headers: { 'Content-Type': 'application/json' }
+    }),
+    put: async () => undefined
+  };
+  const cacheStorage = {
+    open: async (name) => name === 'pwa-settings-v1' ? settingsCache : apiCache
+  };
+  const workerSource = await fs.readFile(path.join(__dirname, '..', 'public', 'service-worker.js'), 'utf8');
+  const context = vm.createContext({
+    self: {
+      location: { origin: 'https://library.test' },
+      addEventListener: (type, listener) => {
+        listeners[type] = listener;
+      }
+    },
+    caches: cacheStorage,
+    fetch: async () => {
+      if (networkMode === 'throw') throw new Error('server stopped');
+      return new Response('Bad Gateway', { status: 502 });
+    },
+    Request,
+    Response,
+    Headers,
+    URL,
+    console
+  });
+  vm.runInContext(workerSource, context);
+
+  async function requestBrowse() {
+    let responsePromise;
+    listeners.fetch({
+      request: new Request('https://library.test/api/browse'),
+      respondWith: (value) => {
+        responsePromise = Promise.resolve(value);
+      }
+    });
+    return responsePromise;
+  }
+
+  const stoppedResponse = await requestBrowse();
+  assert.equal(stoppedResponse.status, 200);
+  assert.equal(stoppedResponse.headers.get('X-PWA-Source'), 'cache');
+  assert.deepEqual(await stoppedResponse.json(), cachedList);
+
+  networkMode = '502';
+  const gatewayResponse = await requestBrowse();
+  assert.equal(gatewayResponse.status, 200);
+  assert.equal(gatewayResponse.headers.get('X-PWA-Source'), 'cache');
+  assert.deepEqual(await gatewayResponse.json(), cachedList);
 });

@@ -1,4 +1,4 @@
-const APP_CACHE = 'app-shell-v4';
+const APP_CACHE = 'app-shell-v5';
 const PDF_CACHE = 'pdf-files-v1';
 const API_CACHE = 'api-lists-v1';
 const RUNTIME_CACHE = 'runtime-assets-v1';
@@ -47,6 +47,10 @@ function isPdfUrl(url) {
   return isSameOrigin(url) && url.pathname.startsWith(PDF_PATH_PREFIX) && url.pathname.toLowerCase().endsWith('.pdf');
 }
 
+function isPdfDownloadUrl(url) {
+  return isSameOrigin(url) && url.pathname.startsWith('/download/') && url.pathname.toLowerCase().endsWith('.pdf');
+}
+
 function isApiListUrl(url) {
   return isSameOrigin(url) && (url.pathname === '/api/browse' || url.pathname === '/api/search');
 }
@@ -76,6 +80,14 @@ function canonicalPdfUrl(urlValue) {
 function pdfCacheKey(urlValue) {
   const url = canonicalPdfUrl(urlValue);
   return new Request(url.href, { method: 'GET', credentials: 'same-origin' });
+}
+
+function contentUrlForDownload(urlValue) {
+  const url = new URL(urlValue, self.location.origin);
+  url.pathname = `${PDF_PATH_PREFIX}${url.pathname.slice('/download/'.length)}`;
+  url.search = '';
+  url.hash = '';
+  return url;
 }
 
 function apiCacheKey(request) {
@@ -255,7 +267,45 @@ async function servePdf(request, event) {
     });
   }
 
-  return fetch(request);
+  try {
+    const response = await fetch(request);
+    if (response.status < 500 || !cached) return response;
+    return responseForPdfRequest(request, cached.response);
+  } catch {
+    if (cached) return responseForPdfRequest(request, cached.response);
+    return new Response('서버에 연결할 수 없고 저장된 PDF도 없습니다.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=UTF-8' }
+    });
+  }
+}
+
+function cachedDownloadResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Content-Disposition', 'attachment');
+  headers.set('X-PWA-Source', 'cache');
+  return new Response(response.clone().body, {
+    status: 200,
+    statusText: 'OK',
+    headers
+  });
+}
+
+async function servePdfDownload(request) {
+  const cached = await pdfCacheEntry(contentUrlForDownload(request.url).href);
+  if (await getOfflineMode()) {
+    if (cached) return cachedDownloadResponse(cached.response);
+    return new Response('저장되지 않은 PDF입니다.', { status: 503 });
+  }
+
+  try {
+    const response = await fetch(request);
+    if (response.status < 500 || !cached) return response;
+    return cachedDownloadResponse(cached.response);
+  } catch {
+    if (cached) return cachedDownloadResponse(cached.response);
+    return new Response('서버에 연결할 수 없고 저장된 PDF도 없습니다.', { status: 503 });
+  }
 }
 
 async function listCachedPdfs() {
@@ -281,7 +331,8 @@ async function appShellResponse(request) {
         const cached = await cache.match(key);
         if (cached) return cached;
       }
-      return cache.match('/index.html') || new Response('오프라인 모드에서 열 수 없는 화면입니다.', {
+      const indexFallback = await cache.match('/index.html');
+      return indexFallback || new Response('오프라인 모드에서 열 수 없는 화면입니다.', {
         status: 503,
         headers: { 'Content-Type': 'text/plain; charset=UTF-8' }
       });
@@ -289,6 +340,14 @@ async function appShellResponse(request) {
 
     try {
       const response = await fetch(request);
+      if (response.status >= 500) {
+        if (key) {
+          const cached = await cache.match(key);
+          if (cached) return cached;
+        }
+        const indexFallback = await cache.match('/index.html');
+        return indexFallback || response;
+      }
       if (response.ok && key) await cache.put(key, response.clone());
       return response;
     } catch {
@@ -338,8 +397,36 @@ function cachedSearchResponse(query) {
         viewable: true
       }));
     return new Response(JSON.stringify({ query, limit: filtered.length, entries: filtered }), {
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'X-PWA-Source': 'cache'
+      }
     });
+  });
+}
+
+function markCacheResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set('X-PWA-Source', 'cache');
+  return new Response(response.clone().body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+async function apiCacheFallback(url, key, networkResponse = null) {
+  if (url.pathname === '/api/search') {
+    return cachedSearchResponse(url.searchParams.get('q') || '');
+  }
+
+  const cache = await caches.open(API_CACHE);
+  const cached = await cache.match(key);
+  if (cached) return markCacheResponse(cached);
+  if (networkResponse) return networkResponse;
+  return new Response(JSON.stringify({ error: '서버에 연결할 수 없고 저장된 목록도 없습니다.' }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' }
   });
 }
 
@@ -349,15 +436,7 @@ async function apiListResponse(request) {
   const url = new URL(request.url);
 
   if (offlineMode && url.searchParams.get('offlineSave') !== '1') {
-    if (url.pathname === '/api/search') return cachedSearchResponse(url.searchParams.get('q') || '');
-
-    const cache = await caches.open(API_CACHE);
-    const cached = await cache.match(key);
-    if (cached) return cached;
-    return new Response(JSON.stringify({ error: '오프라인 모드에서는 저장된 목록만 볼 수 있습니다.' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return apiCacheFallback(url, key);
   }
 
   try {
@@ -366,15 +445,10 @@ async function apiListResponse(request) {
       const cache = await caches.open(API_CACHE);
       await cache.put(key, response.clone());
     }
+    if (response.status >= 500) return apiCacheFallback(url, key, response);
     return response;
-  } catch (error) {
-    if (!offlineMode) throw error;
-    if (url.pathname === '/api/search') return cachedSearchResponse(url.searchParams.get('q') || '');
-
-    const cache = await caches.open(API_CACHE);
-    const cached = await cache.match(key);
-    if (cached) return cached;
-    throw error;
+  } catch {
+    return apiCacheFallback(url, key);
   }
 }
 
@@ -399,6 +473,11 @@ self.addEventListener('fetch', (event) => {
   if (isPdfUrl(url)) {
     if (url.searchParams.get('__pwaDownload') === '1') return;
     event.respondWith(servePdf(event.request, event));
+    return;
+  }
+
+  if (isPdfDownloadUrl(url)) {
+    event.respondWith(servePdfDownload(event.request));
     return;
   }
 

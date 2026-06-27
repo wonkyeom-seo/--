@@ -304,6 +304,7 @@ async function fetchJson(url) {
   const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || '자료를 불러오지 못했습니다.');
+  body.fromOfflineCache = response.headers.get('X-PWA-Source') === 'cache';
   return body;
 }
 
@@ -318,7 +319,7 @@ async function loadDirectory(pathValue, updateHistory = false) {
     const data = await fetchJson(`/api/browse?path=${encodeURIComponent(pathValue)}`);
     if (version !== requestVersion) return;
 
-    if (!offlineMode) {
+    if (!offlineMode && !data.fromOfflineCache) {
       const lockers = Array.isArray(data.lockers)
         ? data.lockers
         : (data.locked ? [pathValue] : []);
