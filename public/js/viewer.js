@@ -174,24 +174,13 @@ function folderDisplayName(folderPath) {
   return folderPath ? folderPath.split('/').at(-1) : '전체 자료';
 }
 
-function folderCandidates(pathValue) {
-  const segments = pathValue ? pathValue.split('/').filter(Boolean) : [];
-  const candidates = [''];
-  let accumulated = '';
-  segments.forEach((segment) => {
-    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
-    candidates.push(accumulated);
-  });
-  return candidates;
-}
-
-async function findLockedFolder(pathValue) {
-  for (const folderPath of folderCandidates(pathValue)) {
+async function ensureLockedFolders(folderPaths) {
+  for (const folderPath of folderPaths) {
     if (isFolderUnlocked(folderPath)) continue;
     const password = await readLockerPassword(folderPath);
-    if (password !== null) return { path: folderPath, password };
+    if (password !== null && !promptForLocker(folderPath, password)) return false;
   }
-  return null;
+  return true;
 }
 
 function promptForLocker(folderPath, password) {
@@ -271,9 +260,8 @@ async function openDirectory(pathValue) {
 
   if (await isOfflineModeEnabled()) {
     if (node.row.classList.contains('locked') && !isFolderUnlocked(pathValue)) return false;
-  } else {
-    const lockedFolder = await findLockedFolder(pathValue);
-    if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) return false;
+  } else if (node.row.classList.contains('locked')) {
+    if (!await ensureLockedFolders([pathValue])) return false;
   }
 
   if (!node.loaded) {
@@ -545,8 +533,11 @@ async function loadPdf() {
   try {
     if (!forceOffline && !await isOfflineModeEnabled()) {
       setStatus('잠금 확인 중입니다.');
-      const lockedFolder = await findLockedFolder(parentPath);
-      if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
+      const folderData = await fetchJson(`/api/browse?path=${encodeURIComponent(parentPath)}`);
+      const lockers = Array.isArray(folderData.lockers)
+        ? folderData.lockers
+        : (folderData.locked ? [parentPath] : []);
+      if (!await ensureLockedFolders(lockers)) {
         setStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 PDF를 열 수 있습니다.', true);
         return;
       }

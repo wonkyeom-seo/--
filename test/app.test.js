@@ -38,6 +38,7 @@ test('browse returns directories first and supports empty folders', async () => 
   assert.equal(root.entries[0].name, '가 폴더');
   assert.equal(root.entries[1].name, '나 폴더');
   assert.equal(root.entries[1].locked, true);
+  assert.deepEqual(root.lockers, []);
 
   const emptyResponse = await fetch(`${baseUrl}/api/browse?path=${encodeURIComponent('가 폴더/빈 폴더')}`);
   assert.equal(emptyResponse.status, 200);
@@ -49,6 +50,7 @@ test('locker files are hidden from listings without blocking direct file serving
   assert.equal(browseResponse.status, 200);
   const browseBody = await browseResponse.json();
   assert.equal(browseBody.locked, true);
+  assert.deepEqual(browseBody.lockers, ['나 폴더']);
   assert.deepEqual(browseBody.entries.map((entry) => entry.name), ['비밀.pdf']);
 
   const searchResponse = await fetch(`${baseUrl}/api/search?q=${encodeURIComponent('비밀')}`);
@@ -125,8 +127,11 @@ test('PWA manifest and service worker are served', async () => {
   assert.match(worker, /GET_OFFLINE_MODE/);
   assert.match(worker, /isExplicitLockerCheck/);
   assert.match(worker, /url\.searchParams\.get\('offlineSave'\) === '1'/);
+  assert.match(worker, /allowWhenDisabled: event\.data\.allowWhenDisabled === true/);
 
   const appResponse = await fetch(`${baseUrl}/js/app.js`);
   const appScript = await appResponse.text();
-  assert.match(appScript, /ensureFolderUnlocked\(folderPath, true\)/);
+  assert.match(appScript, /allowWhenDisabled: true/);
+  assert.match(appScript, /!entry\.locked \|\| await ensureLockedFolders\(\[entry\.path\], true\)/);
+  assert.doesNotMatch(appScript, /오프라인 모드를 켠 뒤 저장할 수 있습니다/);
 });

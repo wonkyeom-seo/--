@@ -79,26 +79,6 @@ function folderDisplayName(folderPath) {
   return folderPath ? folderPath.split('/').at(-1) : '전체 자료';
 }
 
-function folderCandidates(pathValue) {
-  const segments = pathValue ? pathValue.split('/').filter(Boolean) : [];
-  const candidates = [''];
-  let accumulated = '';
-  segments.forEach((segment) => {
-    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
-    candidates.push(accumulated);
-  });
-  return candidates;
-}
-
-async function findLockedFolder(pathValue, allowNetwork = false) {
-  for (const folderPath of folderCandidates(pathValue)) {
-    if (isFolderUnlocked(folderPath)) continue;
-    const password = await readLockerPassword(folderPath, allowNetwork);
-    if (password !== null) return { path: folderPath, password };
-  }
-  return null;
-}
-
 function promptForLocker(folderPath, password) {
   const folderName = folderDisplayName(folderPath);
 
@@ -187,9 +167,13 @@ function createLockBadge(label) {
   return badge;
 }
 
-async function ensureFolderUnlocked(folderPath, allowNetwork = false) {
-  const lockedFolder = await findLockedFolder(folderPath, allowNetwork);
-  return !lockedFolder || promptForLocker(lockedFolder.path, lockedFolder.password);
+async function ensureLockedFolders(folderPaths, allowNetwork = false) {
+  for (const folderPath of folderPaths) {
+    if (isFolderUnlocked(folderPath)) continue;
+    const password = await readLockerPassword(folderPath, allowNetwork);
+    if (password !== null && !promptForLocker(folderPath, password)) return false;
+  }
+  return true;
 }
 
 async function collectFolderPdfs(folderPath, pdfs) {
@@ -199,7 +183,7 @@ async function collectFolderPdfs(folderPath, pdfs) {
     if (entry.type === 'file' && entry.viewable) {
       pdfs.push(entry);
     } else if (entry.type === 'directory') {
-      if (await ensureFolderUnlocked(entry.path, true)) {
+      if (!entry.locked || await ensureLockedFolders([entry.path], true)) {
         await collectFolderPdfs(entry.path, pdfs);
       }
     }
@@ -213,22 +197,16 @@ function setOfflineFolderButtonState(button, state, title) {
   button.setAttribute('aria-label', title);
 }
 
-async function saveFolderOffline(folderPath, button) {
+async function saveFolderOffline(folderPath, button, locked = false) {
   if (!window.pwaControls?.supported) {
     window.alert('이 브라우저는 오프라인 저장을 지원하지 않습니다.');
-    return;
-  }
-
-  const offlineMode = await window.pwaControls.getOfflineMode();
-  if (!offlineMode) {
-    window.alert('오프라인 모드를 켠 뒤 저장할 수 있습니다.');
     return;
   }
 
   setOfflineFolderButtonState(button, 'saving', '폴더 PDF를 오프라인 저장 중입니다.');
   try {
     if (!window.confirm('이 폴더를 저장하는 동안 네트워크 데이터를 사용합니다. 계속할까요?')) return;
-    if (!await ensureFolderUnlocked(folderPath, true)) return;
+    if (locked && !await ensureLockedFolders([folderPath], true)) return;
 
     const pdfs = [];
     await collectFolderPdfs(folderPath, pdfs);
@@ -239,7 +217,10 @@ async function saveFolderOffline(folderPath, button) {
 
     let saved = 0;
     for (const pdf of pdfs) {
-      const result = await window.pwaControls.cachePdf(`/content/${encodePath(pdf.path)}`);
+      const result = await window.pwaControls.cachePdf(
+        `/content/${encodePath(pdf.path)}`,
+        { allowWhenDisabled: true }
+      );
       if (result.cached) saved += 1;
       setOfflineFolderButtonState(button, 'saving', `${saved} / ${pdfs.length}개 저장 중`);
     }
@@ -289,7 +270,11 @@ function renderEntries(entries, searchMode = false) {
         : `${locked ? '잠김 폴더' : '폴더'} · ${formatDate(entry.modifiedAt)}`;
       if (searchMode) meta.classList.add('search-path');
       if (locked) actions.append(createLockBadge('잠긴 폴더'));
-      actions.append(createActionButton('이 폴더 PDF 오프라인 저장', icons.offline, (button) => saveFolderOffline(entry.path, button)));
+      actions.append(createActionButton(
+        '이 폴더 PDF 오프라인 저장',
+        icons.offline,
+        (button) => saveFolderOffline(entry.path, button, entry.locked === true)
+      ));
       main.addEventListener('click', async () => {
         if (locked && await isOfflineModeEnabled()) {
           window.alert('오프라인 모드에서는 잠긴 폴더를 새로 확인하지 않습니다.');
@@ -326,13 +311,18 @@ async function loadDirectory(pathValue, updateHistory = false) {
   const version = ++requestVersion;
   searchInput.value = '';
   buildBreadcrumbs(pathValue);
-  showStatus('잠금 확인 중입니다.');
+  showStatus('자료를 불러오는 중입니다.');
 
   try {
-    if (!await isOfflineModeEnabled()) {
-      const lockedFolder = await findLockedFolder(pathValue);
-      if (version !== requestVersion) return;
-      if (lockedFolder && !promptForLocker(lockedFolder.path, lockedFolder.password)) {
+    const offlineMode = await isOfflineModeEnabled();
+    const data = await fetchJson(`/api/browse?path=${encodeURIComponent(pathValue)}`);
+    if (version !== requestVersion) return;
+
+    if (!offlineMode) {
+      const lockers = Array.isArray(data.lockers)
+        ? data.lockers
+        : (data.locked ? [pathValue] : []);
+      if (!await ensureLockedFolders(lockers)) {
         showStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 열 수 있습니다.');
         return;
       }
@@ -347,7 +337,6 @@ async function loadDirectory(pathValue, updateHistory = false) {
       history.pushState({ path: currentPath }, '', url);
     }
 
-    const data = await fetchJson(`/api/browse?path=${encodeURIComponent(currentPath)}`);
     if (version === requestVersion) renderEntries(data.entries);
   } catch (error) {
     if (version === requestVersion) showStatus('자료를 불러오지 못했습니다.', error.message);

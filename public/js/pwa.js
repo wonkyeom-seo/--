@@ -82,7 +82,9 @@
     setOfflineMode: (enabled) => supportsServiceWorker
       ? postToServiceWorker('SET_OFFLINE_MODE', { enabled }).then((data) => data.enabled !== false)
       : Promise.resolve(false),
-    cachePdf: (url) => supportsServiceWorker ? postToServiceWorker('CACHE_PDF', { url }) : unsupported(),
+    cachePdf: (url, options = {}) => supportsServiceWorker
+      ? postToServiceWorker('CACHE_PDF', { url, allowWhenDisabled: options.allowWhenDisabled === true })
+      : unsupported(),
     isPdfCached: (url) => supportsServiceWorker ? postToServiceWorker('IS_PDF_CACHED', { url }) : Promise.resolve({ cached: false, entry: null })
   };
 

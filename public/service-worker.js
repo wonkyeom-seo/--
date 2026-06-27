@@ -1,4 +1,4 @@
-const APP_CACHE = 'app-shell-v3';
+const APP_CACHE = 'app-shell-v4';
 const PDF_CACHE = 'pdf-files-v1';
 const API_CACHE = 'api-lists-v1';
 const RUNTIME_CACHE = 'runtime-assets-v1';
@@ -435,7 +435,9 @@ self.addEventListener('message', (event) => {
       } else if (type === 'SET_OFFLINE_MODE') {
         postResult(event, type, { enabled: await setOfflineMode(event.data.enabled) });
       } else if (type === 'CACHE_PDF') {
-        const result = await cachePdf(event.data.url);
+        const result = await cachePdf(event.data.url, {
+          allowWhenDisabled: event.data.allowWhenDisabled === true
+        });
         postResult(event, type, result);
         if (result.cached) event.source?.postMessage({ type: 'PDF_CACHED', url: result.entry.url, entry: result.entry });
       } else if (type === 'IS_PDF_CACHED') {
