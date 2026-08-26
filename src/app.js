@@ -146,9 +146,25 @@ function createApp(options = {}) {
     }
   }
 
+  async function findLockerPaths(relativePath) {
+    const segments = relativePath ? relativePath.split('/') : [];
+    const lockerPaths = [];
+
+    for (let index = 0; index <= segments.length; index += 1) {
+      const candidatePath = segments.slice(0, index).join('/');
+      const directory = await resolveExistingPath(candidatePath, 'directory');
+      if (await hasLocker(directory.realPath)) lockerPaths.push(candidatePath);
+    }
+
+    return lockerPaths;
+  }
+
   async function listDirectory(relativePath) {
     const directory = await resolveExistingPath(relativePath, 'directory');
-    const dirents = await fsp.readdir(directory.realPath, { withFileTypes: true });
+    const [dirents, lockers] = await Promise.all([
+      fsp.readdir(directory.realPath, { withFileTypes: true }),
+      findLockerPaths(directory.relativePath)
+    ]);
     const entries = await Promise.all(
       dirents
         .filter((dirent) => dirent.name !== LOCKER_FILE && (dirent.isDirectory() || dirent.isFile()))
@@ -161,7 +177,8 @@ function createApp(options = {}) {
     );
     return {
       path: directory.relativePath,
-      locked: await hasLocker(directory.realPath),
+      locked: lockers.includes(directory.relativePath),
+      lockers,
       entries: entries.sort(sortEntries)
     };
   }
