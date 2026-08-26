@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
-const vm = require('node:vm');
 const { after, before, test } = require('node:test');
 const { createApp } = require('../src/app');
 
@@ -70,9 +69,6 @@ test('locker files are hidden from listings without blocking direct file serving
   assert.equal(lockerResponse.status, 200);
   assert.equal(await lockerResponse.text(), 'secret');
 
-  const offlineSaveLockerResponse = await fetch(`${baseUrl}/content/${lockerPath}?offlineSave=1`);
-  assert.equal(offlineSaveLockerResponse.status, 200);
-  assert.equal(await offlineSaveLockerResponse.text(), 'secret');
 });
 
 test('search finds nested files and Korean names', async () => {
@@ -113,7 +109,7 @@ test('invalid ranges and traversal attempts are rejected', async () => {
   assert.ok([400, 404].includes(contentResponse.status));
 });
 
-test('PWA manifest and service worker are served', async () => {
+test('PWA metadata is served without offline infrastructure', async () => {
   const manifestResponse = await fetch(`${baseUrl}/manifest.webmanifest`);
   assert.equal(manifestResponse.status, 200);
   const manifest = await manifestResponse.json();
@@ -122,79 +118,18 @@ test('PWA manifest and service worker are served', async () => {
   assert.ok(manifest.icons.some((icon) => icon.sizes === '512x512'));
 
   const workerResponse = await fetch(`${baseUrl}/service-worker.js`);
-  assert.equal(workerResponse.status, 200);
-  const worker = await workerResponse.text();
-  assert.match(worker, /const PDF_PATH_PREFIX = '\/content\/';/);
-  assert.match(worker, /GET_OFFLINE_MODE/);
-  assert.match(worker, /isExplicitLockerCheck/);
-  assert.match(worker, /url\.searchParams\.get\('offlineSave'\) === '1'/);
-  assert.match(worker, /allowWhenDisabled: event\.data\.allowWhenDisabled === true/);
+  assert.equal(workerResponse.status, 404);
 
-  const appResponse = await fetch(`${baseUrl}/js/app.js`);
-  const appScript = await appResponse.text();
-  assert.match(appScript, /allowWhenDisabled: true/);
-  assert.match(appScript, /!entry\.locked \|\| await ensureLockedFolders\(\[entry\.path\], true\)/);
-  assert.doesNotMatch(appScript, /오프라인 모드를 켠 뒤 저장할 수 있습니다/);
-});
+  const indexResponse = await fetch(`${baseUrl}/`);
+  assert.equal(indexResponse.status, 200);
+  assert.doesNotMatch(await indexResponse.text(), /offlineToggle|오프라인/);
 
-test('service worker uses cached folder lists when the server is unavailable', async () => {
-  const listeners = {};
-  const cachedList = { path: '', lockers: [], entries: [{ name: '저장됨', type: 'directory' }] };
-  let networkMode = 'throw';
+  const viewerResponse = await fetch(`${baseUrl}/viewer.html`);
+  assert.equal(viewerResponse.status, 200);
+  assert.doesNotMatch(await viewerResponse.text(), /offlineSaveButton|오프라인/);
 
-  const settingsCache = {
-    match: async () => undefined,
-    put: async () => undefined
-  };
-  const apiCache = {
-    match: async () => new Response(JSON.stringify(cachedList), {
-      headers: { 'Content-Type': 'application/json' }
-    }),
-    put: async () => undefined
-  };
-  const cacheStorage = {
-    open: async (name) => name === 'pwa-settings-v1' ? settingsCache : apiCache
-  };
-  const workerSource = await fs.readFile(path.join(__dirname, '..', 'public', 'service-worker.js'), 'utf8');
-  const context = vm.createContext({
-    self: {
-      location: { origin: 'https://library.test' },
-      addEventListener: (type, listener) => {
-        listeners[type] = listener;
-      }
-    },
-    caches: cacheStorage,
-    fetch: async () => {
-      if (networkMode === 'throw') throw new Error('server stopped');
-      return new Response('Bad Gateway', { status: 502 });
-    },
-    Request,
-    Response,
-    Headers,
-    URL,
-    console
-  });
-  vm.runInContext(workerSource, context);
-
-  async function requestBrowse() {
-    let responsePromise;
-    listeners.fetch({
-      request: new Request('https://library.test/api/browse'),
-      respondWith: (value) => {
-        responsePromise = Promise.resolve(value);
-      }
-    });
-    return responsePromise;
-  }
-
-  const stoppedResponse = await requestBrowse();
-  assert.equal(stoppedResponse.status, 200);
-  assert.equal(stoppedResponse.headers.get('X-PWA-Source'), 'cache');
-  assert.deepEqual(await stoppedResponse.json(), cachedList);
-
-  networkMode = '502';
-  const gatewayResponse = await requestBrowse();
-  assert.equal(gatewayResponse.status, 200);
-  assert.equal(gatewayResponse.headers.get('X-PWA-Source'), 'cache');
-  assert.deepEqual(await gatewayResponse.json(), cachedList);
+  const pwaResponse = await fetch(`${baseUrl}/js/pwa.js`);
+  assert.equal(pwaResponse.status, 200);
+  const pwaScript = await pwaResponse.text();
+  assert.doesNotMatch(pwaScript, /GET_OFFLINE_MODE|SET_OFFLINE_MODE|CACHE_PDF|offlineToggle|pwaControls/);
 });

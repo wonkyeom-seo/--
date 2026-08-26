@@ -4,7 +4,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/build/pdf.worker.mjs';
 
 const params = new URLSearchParams(location.search);
 const relativePath = params.get('path') || '';
-const forceOffline = params.get('offline') === '1';
 const fileName = relativePath.split('/').at(-1) || 'PDF';
 const parentPath = relativePath.split('/').slice(0, -1).join('/');
 
@@ -24,7 +23,6 @@ const fitWidthButton = document.querySelector('#fitWidth');
 const continuousViewButton = document.querySelector('#continuousView');
 const spreadViewButton = document.querySelector('#spreadView');
 const printButton = document.querySelector('#printButton');
-const offlineSaveButton = document.querySelector('#offlineSaveButton');
 const downloadLink = document.querySelector('#downloadLink');
 const backLink = document.querySelector('#backLink');
 const fileTreeToggle = document.querySelector('#fileTreeToggle');
@@ -46,7 +44,6 @@ let pageObserver;
 let defaultPageRatio = 1.414;
 let loadingFinished = false;
 let printUrl = '';
-let canonicalPdfUrl = '';
 let treeLoaded = false;
 let treeSearchTimer;
 const renderTasks = new Set();
@@ -65,60 +62,6 @@ function encodePath(pathValue) {
   return pathValue.split('/').map(encodeURIComponent).join('/');
 }
 
-function setOfflineSaveButton(state, label, title, disabled = true) {
-  if (!offlineSaveButton) return;
-  offlineSaveButton.dataset.state = state;
-  offlineSaveButton.disabled = disabled;
-  offlineSaveButton.title = title;
-  offlineSaveButton.setAttribute('aria-label', title);
-  const labelElement = offlineSaveButton.querySelector('span');
-  if (labelElement) labelElement.textContent = label;
-}
-
-async function refreshOfflineSaveButton() {
-  if (!offlineSaveButton || !canonicalPdfUrl) return;
-  if (!window.pwaControls?.supported) {
-    setOfflineSaveButton('unsupported', '저장 불가', '이 브라우저는 오프라인 저장을 지원하지 않습니다.');
-    return;
-  }
-
-  try {
-    const [offlineMode, cacheState] = await Promise.all([
-      window.pwaControls.getOfflineMode(),
-      window.pwaControls.isPdfCached(canonicalPdfUrl)
-    ]);
-
-    if (cacheState.cached) {
-      setOfflineSaveButton('cached', '저장됨', '오프라인 저장됨');
-    } else if (offlineMode) {
-      setOfflineSaveButton('idle', '오프라인 저장', '이 PDF를 오프라인에 저장', false);
-    } else {
-      setOfflineSaveButton('off', '오프라인 꺼짐', '오프라인 모드가 꺼져 있습니다.');
-    }
-  } catch {
-    setOfflineSaveButton('error', '확인 실패', '오프라인 저장 상태를 확인하지 못했습니다.');
-  }
-}
-
-async function cacheCurrentPdf() {
-  if (!canonicalPdfUrl || !window.pwaControls?.supported) return;
-
-  const offlineMode = await window.pwaControls.getOfflineMode();
-  if (!offlineMode) {
-    await refreshOfflineSaveButton();
-    return;
-  }
-
-  setOfflineSaveButton('saving', '저장 중', '오프라인 저장 중입니다.');
-  try {
-    const result = await window.pwaControls.cachePdf(canonicalPdfUrl);
-    if (result.cached) setOfflineSaveButton('cached', '저장됨', '오프라인 저장됨');
-    else await refreshOfflineSaveButton();
-  } catch {
-    await refreshOfflineSaveButton();
-  }
-}
-
 function setStatus(title, detail = '', isError = false) {
   status.classList.remove('hidden');
   status.innerHTML = `${isError ? '' : '<span class="spinner"></span>'}<strong>${title}</strong><small>${detail}</small>`;
@@ -134,7 +77,6 @@ async function fetchJson(url) {
   const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || '파일 목록을 불러오지 못했습니다.');
-  body.fromOfflineCache = response.headers.get('X-PWA-Source') === 'cache';
   return body;
 }
 
@@ -152,11 +94,6 @@ function markFolderUnlocked(folderPath) {
 
 function lockerUrl(folderPath) {
   return folderPath ? `/content/${encodePath(folderPath)}/.locker` : '/content/.locker';
-}
-
-async function isOfflineModeEnabled() {
-  if (!window.pwaControls?.supported) return false;
-  return window.pwaControls.getOfflineMode().catch(() => true);
 }
 
 async function readLockerPassword(folderPath) {
@@ -259,9 +196,7 @@ async function openDirectory(pathValue) {
   const node = directoryNodes.get(pathValue);
   if (!node) return false;
 
-  if (await isOfflineModeEnabled()) {
-    if (node.row.classList.contains('locked') && !isFolderUnlocked(pathValue)) return false;
-  } else if (node.row.classList.contains('locked')) {
+  if (node.row.classList.contains('locked')) {
     if (!await ensureLockedFolders([pathValue])) return false;
   }
 
@@ -532,22 +467,18 @@ async function loadPdf() {
   backLink.href = parentPath ? `/?path=${encodeURIComponent(parentPath)}` : '/';
 
   try {
-    if (!forceOffline && !await isOfflineModeEnabled()) {
-      setStatus('잠금 확인 중입니다.');
-      const folderData = await fetchJson(`/api/browse?path=${encodeURIComponent(parentPath)}`);
-      const lockers = Array.isArray(folderData.lockers)
-        ? folderData.lockers
-        : (folderData.locked ? [parentPath] : []);
-      if (!folderData.fromOfflineCache && !await ensureLockedFolders(lockers)) {
-        setStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 PDF를 열 수 있습니다.', true);
-        return;
-      }
+    setStatus('잠금 확인 중입니다.');
+    const folderData = await fetchJson(`/api/browse?path=${encodeURIComponent(parentPath)}`);
+    const lockers = Array.isArray(folderData.lockers)
+      ? folderData.lockers
+      : (folderData.locked ? [parentPath] : []);
+    if (!await ensureLockedFolders(lockers)) {
+      setStatus('잠긴 폴더입니다.', '비밀번호를 입력하면 PDF를 열 수 있습니다.', true);
+      return;
     }
 
-    canonicalPdfUrl = `/content/${encodedPath}`;
-    const sourceUrl = forceOffline ? `${canonicalPdfUrl}?offline=1` : canonicalPdfUrl;
+    const sourceUrl = `/content/${encodedPath}`;
     printUrl = sourceUrl;
-    setOfflineSaveButton('checking', '저장 확인', '오프라인 저장 상태를 확인하는 중입니다.');
     printButton.disabled = false;
     downloadLink.href = `/download/${encodedPath}`;
 
@@ -569,8 +500,6 @@ async function loadPdf() {
     const firstViewport = firstPage.getViewport({ scale: 1 });
     defaultPageRatio = firstViewport.height / firstViewport.width;
     await renderDocument();
-    await refreshOfflineSaveButton();
-    cacheCurrentPdf();
   } catch (error) {
     console.error(error);
     setStatus('PDF를 불러오지 못했습니다.', '파일이 손상되었거나 서버 연결이 끊겼습니다.', true);
@@ -595,7 +524,6 @@ fitWidthButton.addEventListener('click', () => {
 });
 continuousViewButton.addEventListener('click', () => toggleViewMode('continuous'));
 spreadViewButton.addEventListener('click', () => toggleViewMode('spread'));
-offlineSaveButton?.addEventListener('click', cacheCurrentPdf);
 printButton.addEventListener('click', () => {
   if (!printUrl) return;
   const printWindow = window.open(printUrl, '_blank');
@@ -644,8 +572,5 @@ window.addEventListener('resize', () => {
     if (fitMode) renderDocument();
   }, 180);
 });
-
-window.addEventListener('pwa:offline-mode-change', refreshOfflineSaveButton);
-window.addEventListener('pwa:pdf-cached', refreshOfflineSaveButton);
 
 loadPdf();
