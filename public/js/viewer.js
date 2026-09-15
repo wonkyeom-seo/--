@@ -20,6 +20,7 @@ const fitWidthButton = document.querySelector('#fitWidth');
 const continuousViewButton = document.querySelector('#continuousView');
 const spreadViewButton = document.querySelector('#spreadView');
 const printButton = document.querySelector('#printButton');
+const externalViewerLink = document.querySelector('#externalViewerLink');
 const downloadLink = document.querySelector('#downloadLink');
 const backLink = document.querySelector('#backLink');
 const fileTreeToggle = document.querySelector('#fileTreeToggle');
@@ -495,6 +496,8 @@ async function loadPdf() {
     const sourceUrl = `/content/${encodedPath}`;
     printUrl = sourceUrl;
     printButton.disabled = false;
+    externalViewerLink.href = `https://midterm33.kro.kr/content/${encodedPath}`;
+    externalViewerLink.hidden = false;
     downloadLink.href = `/download/${encodedPath}`;
 
     void loadCachedPreview();

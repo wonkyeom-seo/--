@@ -478,7 +478,8 @@ svg {
 }
 
 .viewer-download,
-.viewer-action {
+.viewer-action,
+.viewer-external {
   display: flex;
   align-items: center;
   padding: 8px 10px;
@@ -488,6 +489,20 @@ svg {
   color: var(--text);
   font-size: 0.74rem;
   text-decoration: none;
+}
+
+.viewer-external {
+  padding: 7px 8px;
+  font-size: 0.68rem;
+}
+
+.viewer-external[hidden] {
+  display: none;
+}
+
+.viewer-download:hover,
+.viewer-external:hover {
+  background: #272d34;
 }
 
 .viewer-action {
@@ -944,7 +959,8 @@ svg {
   }
 
   .viewer-download,
-  .viewer-action {
+  .viewer-action,
+  .viewer-external {
     width: 36px;
     height: 36px;
     padding: 0;
@@ -952,7 +968,8 @@ svg {
   }
 
   .viewer-download span,
-  .viewer-action span {
+  .viewer-action span,
+  .viewer-external span {
     display: none;
   }
 

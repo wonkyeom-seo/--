@@ -189,10 +189,16 @@ test('PWA metadata is served without offline infrastructure', async () => {
 
   const viewerResponse = await fetch(`${baseUrl}/viewer.html`);
   assert.equal(viewerResponse.status, 200);
-  assert.doesNotMatch(await viewerResponse.text(), /offlineSaveButton|오프라인/);
+  const viewerHtml = await viewerResponse.text();
+  assert.doesNotMatch(viewerHtml, /offlineSaveButton|오프라인/);
+  assert.match(viewerHtml, /id="externalViewerLink"[^>]+target="_blank"/);
 
   const pwaResponse = await fetch(`${baseUrl}/js/pwa.js`);
   assert.equal(pwaResponse.status, 200);
   const pwaScript = await pwaResponse.text();
   assert.doesNotMatch(pwaScript, /GET_OFFLINE_MODE|SET_OFFLINE_MODE|CACHE_PDF|offlineToggle|pwaControls/);
+
+  const viewerScriptResponse = await fetch(`${baseUrl}/js/viewer.js`);
+  assert.equal(viewerScriptResponse.status, 200);
+  assert.match(await viewerScriptResponse.text(), /https:\/\/midterm33\.kro\.kr\/content\//);
 });
