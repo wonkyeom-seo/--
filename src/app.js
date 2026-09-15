@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const { PdfCache } = require('./pdf-cache');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PDFJS_DIR = path.join(__dirname, '..', 'node_modules', 'pdfjs-dist');
@@ -95,6 +96,8 @@ function parseRange(rangeHeader, size) {
 function createApp(options = {}) {
   const app = express();
   const dataRoot = path.resolve(options.dataRoot || process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+  const cacheRoot = path.resolve(options.cacheRoot || process.env.PDF_CACHE_DIR || path.join(__dirname, '..', '.cache', 'pdf-pages'));
+  const pdfCache = options.pdfCache || new PdfCache(cacheRoot);
   let realDataRootPromise;
 
   async function getRealDataRoot() {
@@ -273,6 +276,56 @@ function createApp(options = {}) {
       const query = typeof req.query.q === 'string' ? req.query.q : '';
       const entries = await searchFiles(query);
       res.json({ query, limit: SEARCH_LIMIT, entries });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/pdf/manifest', async (req, res, next) => {
+    try {
+      const file = await resolveExistingPath(req.query.path || '', 'file');
+      if (path.extname(file.realPath).toLowerCase() !== '.pdf') {
+        res.status(400).json({ error: 'PDF 파일만 미리보기 할 수 있습니다.' });
+        return;
+      }
+
+      const manifest = await pdfCache.getManifest(file.relativePath, file.stats);
+      if (!manifest) {
+        res.status(404).json({ error: '미리 생성된 PDF 이미지가 없습니다.', code: 'PDF_CACHE_MISS' });
+        return;
+      }
+
+      res.set('Cache-Control', 'private, no-cache').json(manifest);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/pdf/page', async (req, res, next) => {
+    try {
+      const file = await resolveExistingPath(req.query.path || '', 'file');
+      if (path.extname(file.realPath).toLowerCase() !== '.pdf') {
+        res.status(400).json({ error: 'PDF 파일만 미리보기 할 수 있습니다.' });
+        return;
+      }
+
+      const pageNumber = Number(req.query.page);
+      if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+        res.status(400).json({ error: '올바른 페이지 번호가 아닙니다.' });
+        return;
+      }
+
+      const pagePath = await pdfCache.getPagePath(file.relativePath, file.stats, pageNumber);
+      if (!pagePath) {
+        res.status(404).json({ error: '미리 생성된 페이지 이미지가 없습니다.', code: 'PDF_CACHE_MISS' });
+        return;
+      }
+
+      res.type(pagePath);
+      res.set('Cache-Control', 'private, max-age=31536000, immutable');
+      res.sendFile(pagePath, (error) => {
+        if (error) next(error);
+      });
     } catch (error) {
       next(error);
     }

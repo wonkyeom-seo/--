@@ -816,6 +816,22 @@ svg {
   visibility: hidden;
 }
 
+.pdf-loading-preview {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  max-width: calc(100% - 44px);
+  max-height: calc(100% - 44px);
+  object-fit: contain;
+  background: white;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.32);
+  transform: translateX(-50%);
+}
+
+.pdf-loading-preview[hidden] {
+  display: none;
+}
+
 .pdf-page-error {
   padding: 30px;
   color: var(--muted);
@@ -951,6 +967,12 @@ svg {
   .viewer-stage {
     height: calc(100dvh - 188px);
     padding: 10px 5px 24px;
+  }
+
+  .pdf-loading-preview {
+    top: 10px;
+    max-width: calc(100% - 10px);
+    max-height: calc(100% - 20px);
   }
 
   .mode-button {

@@ -1,7 +1,3 @@
-import * as pdfjsLib from '/vendor/pdfjs/build/pdf.mjs';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/build/pdf.worker.mjs';
-
 const params = new URLSearchParams(location.search);
 const relativePath = params.get('path') || '';
 const fileName = relativePath.split('/').at(-1) || 'PDF';
@@ -9,6 +5,7 @@ const parentPath = relativePath.split('/').slice(0, -1).join('/');
 
 const stage = document.querySelector('#viewerStage');
 const status = document.querySelector('#viewerStatus');
+const loadingPreview = document.querySelector('#pdfLoadingPreview');
 const pagesElement = document.querySelector('#pdfPages');
 const fileNameElement = document.querySelector('#fileName');
 const pageSummary = document.querySelector('#pageSummary');
@@ -33,6 +30,7 @@ const fileTreeElement = document.querySelector('#fileTree');
 const fileTreeSearch = document.querySelector('#fileTreeSearch');
 
 let pdf;
+let pdfjsLibPromise;
 let currentPage = 1;
 let zoom = 1;
 let fitMode = true;
@@ -69,15 +67,32 @@ function setStatus(title, detail = '', isError = false) {
 }
 
 function hideStatus() {
+  loadingFinished = true;
   status.classList.add('hidden');
+  loadingPreview.hidden = true;
   pagesElement.classList.add('visible');
 }
 
 async function fetchJson(url) {
   const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || '파일 목록을 불러오지 못했습니다.');
+  if (!response.ok) {
+    const error = new Error(body.error || '파일 목록을 불러오지 못했습니다.');
+    error.status = response.status;
+    error.code = body.code;
+    throw error;
+  }
   return body;
+}
+
+async function getPdfjsLib() {
+  if (!pdfjsLibPromise) {
+    pdfjsLibPromise = import('/vendor/pdfjs/build/pdf.mjs').then((library) => {
+      library.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/build/pdf.worker.mjs';
+      return library;
+    });
+  }
+  return pdfjsLibPromise;
 }
 
 function lockerKey(folderPath) {
@@ -482,6 +497,9 @@ async function loadPdf() {
     printButton.disabled = false;
     downloadLink.href = `/download/${encodedPath}`;
 
+    void loadCachedPreview();
+
+    const pdfjsLib = await getPdfjsLib();
     const loadingTask = pdfjsLib.getDocument({
       url: sourceUrl,
       cMapUrl: '/vendor/pdfjs/cmaps/',
@@ -495,7 +513,6 @@ async function loadPdf() {
       if (!loadingFinished && total) pageSummary.textContent = `${Math.round((loaded / total) * 100)}% 불러오는 중`;
     };
     pdf = await loadingTask.promise;
-    loadingFinished = true;
     const firstPage = await pdf.getPage(1);
     const firstViewport = firstPage.getViewport({ scale: 1 });
     defaultPageRatio = firstViewport.height / firstViewport.width;
@@ -503,6 +520,30 @@ async function loadPdf() {
   } catch (error) {
     console.error(error);
     setStatus('PDF를 불러오지 못했습니다.', '파일이 손상되었거나 서버 연결이 끊겼습니다.', true);
+  }
+}
+
+async function loadCachedPreview() {
+  try {
+    const manifest = await fetchJson(`/api/pdf/manifest?path=${encodeURIComponent(relativePath)}`);
+    const query = new URLSearchParams({
+      path: relativePath,
+      page: '1',
+      v: manifest.sourceVersion
+    });
+    loadingPreview.src = `/api/pdf/page?${query}`;
+    await new Promise((resolve, reject) => {
+      if (loadingPreview.complete) {
+        if (loadingPreview.naturalWidth) resolve();
+        else reject(new Error('미리보기 이미지를 불러오지 못했습니다.'));
+        return;
+      }
+      loadingPreview.addEventListener('load', resolve, { once: true });
+      loadingPreview.addEventListener('error', reject, { once: true });
+    });
+    if (!loadingFinished) loadingPreview.hidden = false;
+  } catch (error) {
+    if (error.code !== 'PDF_CACHE_MISS') console.info('PDF 로딩 미리보기를 사용할 수 없습니다.', error);
   }
 }
 

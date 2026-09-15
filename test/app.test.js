@@ -4,8 +4,11 @@ const path = require('node:path');
 const os = require('node:os');
 const { after, before, test } = require('node:test');
 const { createApp } = require('../src/app');
+const { sourceVersion } = require('../src/pdf-cache');
+const { parsePageCount, parsePageSizes } = require('../scripts/precache-pdfs');
 
 let tempRoot;
+let tempCacheRoot;
 let baseUrl;
 let server;
 
@@ -18,7 +21,27 @@ before(async () => {
   await fs.writeFile(path.join(tempRoot, '나 폴더', '.locker'), 'secret');
   await fs.writeFile(path.join(tempRoot, '나 폴더', '비밀.pdf'), 'locked');
 
-  const app = createApp({ dataRoot: tempRoot });
+  tempCacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'exam-library-cache-'));
+  const pdfStats = await fs.stat(path.join(tempRoot, '[시험] 학습자료.pdf'));
+  const pageRelativePath = 'documents/test/page-1.jpg';
+  await fs.mkdir(path.join(tempCacheRoot, 'documents', 'test'), { recursive: true });
+  await fs.writeFile(path.join(tempCacheRoot, pageRelativePath), Buffer.from('cached-page'));
+  await fs.writeFile(path.join(tempCacheRoot, 'index.json'), JSON.stringify({
+    formatVersion: 1,
+    generatedAt: new Date().toISOString(),
+    documents: {
+      '[시험] 학습자료.pdf': {
+        sourceVersion: sourceVersion(pdfStats),
+        pageCount: 12,
+        pageSizes: [{ width: 595, height: 842 }],
+        renderWidth: 1800,
+        imageQuality: 85,
+        pages: [pageRelativePath]
+      }
+    }
+  }));
+
+  const app = createApp({ dataRoot: tempRoot, cacheRoot: tempCacheRoot });
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -28,6 +51,7 @@ after(async () => {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
   await fs.rm(tempRoot, { recursive: true, force: true });
+  await fs.rm(tempCacheRoot, { recursive: true, force: true });
 });
 
 test('browse returns directories first and supports empty folders', async () => {
@@ -43,6 +67,22 @@ test('browse returns directories first and supports empty folders', async () => 
   const emptyResponse = await fetch(`${baseUrl}/api/browse?path=${encodeURIComponent('가 폴더/빈 폴더')}`);
   assert.equal(emptyResponse.status, 200);
   assert.deepEqual((await emptyResponse.json()).entries, []);
+});
+
+test('pdfinfo output is parsed including rotated page dimensions', () => {
+  const output = [
+    'Pages:           2',
+    'Page    1 size:  595.276 x 841.89 pts (A4)',
+    'Page    1 rot:   0',
+    'Page    2 size:  612 x 792 pts (letter)',
+    'Page    2 rot:   90'
+  ].join('\n');
+
+  assert.equal(parsePageCount(output), 2);
+  assert.deepEqual(parsePageSizes(output, 2), [
+    { width: 595.276, height: 841.89 },
+    { width: 792, height: 612 }
+  ]);
 });
 
 test('locker files are hidden from listings without blocking direct file serving', async () => {
@@ -86,6 +126,29 @@ test('content endpoint serves byte ranges', async () => {
   assert.equal(response.status, 206);
   assert.equal(response.headers.get('content-range'), 'bytes 5-9/36');
   assert.equal(await response.text(), '56789');
+});
+
+test('pre-rendered PDF manifest and page image are served from cache', async () => {
+  const pdfPath = encodeURIComponent('[시험] 학습자료.pdf');
+  const manifestResponse = await fetch(`${baseUrl}/api/pdf/manifest?path=${pdfPath}`);
+  assert.equal(manifestResponse.status, 200);
+  const manifest = await manifestResponse.json();
+  assert.equal(manifest.pageCount, 12);
+  assert.deepEqual(manifest.previewSize, { width: 595, height: 842 });
+  assert.match(manifest.sourceVersion, /^36-/);
+
+  const pageResponse = await fetch(`${baseUrl}/api/pdf/page?path=${pdfPath}&page=1`);
+  assert.equal(pageResponse.status, 200);
+  assert.equal(pageResponse.headers.get('content-type'), 'image/jpeg');
+  assert.match(pageResponse.headers.get('cache-control'), /immutable/);
+  assert.equal(Buffer.from(await pageResponse.arrayBuffer()).toString(), 'cached-page');
+
+  const invalidPageResponse = await fetch(`${baseUrl}/api/pdf/page?path=${pdfPath}&page=2`);
+  assert.equal(invalidPageResponse.status, 404);
+
+  const missingResponse = await fetch(`${baseUrl}/api/pdf/manifest?path=${encodeURIComponent('나 폴더/비밀.pdf')}`);
+  assert.equal(missingResponse.status, 404);
+  assert.equal((await missingResponse.json()).code, 'PDF_CACHE_MISS');
 });
 
 test('download endpoint preserves UTF-8 file names', async () => {
