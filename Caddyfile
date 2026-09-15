@@ -1,0 +1,8 @@
+{
+    email swk1072@gmail.com
+    acme_ca https://acme.zerossl.com/v2/DV90
+}
+
+midterm33.kro.kr {
+    reverse_proxy localhost:3000
+}
